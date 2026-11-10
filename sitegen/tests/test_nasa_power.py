@@ -14,6 +14,7 @@ def test_parse_nasa_power_daily_radiation_payload() -> None:
                     "20240602": -999,
                     "20240603": 61.0,
                     "20240604": 0.0,
+                    "20240605": float("nan"),
                     "bad-date": 12.0,
                 }
             }
