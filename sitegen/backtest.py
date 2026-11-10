@@ -288,9 +288,22 @@ def parse_sky_cover_code(value: str | float | None) -> float | None:
 
 
 def parse_sky_cover_from_row(row: dict[str, Any]) -> float | None:
-    overall = parse_sky_cover_code(_field(row, "sky_condition"))
+    overall = parse_sky_cover_code(_field(row, "sky_condition", "sky_cover"))
     if overall is not None:
         return overall
+
+    # GHCNh v1 files and legacy source streams also expose sky_cover_1..3.
+    # These are per-layer oktas values; retain the maximum reported layer
+    # as a conservative cloud-cover proxy rather than treating missing layers
+    # as clear sky.
+    legacy_layers = [
+        parse_sky_cover_code(_field(row, f"sky_cover_{index}"))
+        for index in range(1, 4)
+    ]
+    available = [value for value in legacy_layers if value is not None]
+    if available:
+        return max(available)
+
     summations = [
         parse_sky_cover_code(_field(row, f"sky_cover_summation_{index}"))
         for index in range(1, 5)
