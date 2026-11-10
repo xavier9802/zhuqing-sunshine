@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import sys
 
+import httpx
+
 from sitegen.catalog import MODEL_CATALOG
 from sitegen.open_meteo import OpenMeteoClient, WeatherLocation
 
@@ -38,7 +40,7 @@ def main() -> None:
                         "valid_hours": len(valid),
                     }
                 )
-            except Exception as exc:
+            except (httpx.HTTPError, ValueError, TypeError, KeyError, RuntimeError) as exc:
                 statuses.append(
                     {"model": model_id, "status": "failed", "error": str(exc)[:300]}
                 )
