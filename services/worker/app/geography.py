@@ -13,7 +13,6 @@ from shapely import make_valid
 from shapely.geometry import MultiPolygon, Polygon, box, mapping, shape
 from shapely.ops import transform, unary_union
 
-
 USGS_BOUNDARY_URL = (
     "https://pubs.usgs.gov/of/2000/of00-047/SHP_files/sed_basins.ZIP"
 )

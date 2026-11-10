@@ -10,7 +10,6 @@ from zipfile import ZipFile
 
 import httpx
 
-
 GEONAMES_CITIES_URL = "https://download.geonames.org/export/dump/cities15000.zip"
 GEONAMES_ADMIN1_URL = "https://download.geonames.org/export/dump/admin1CodesASCII.txt"
 GEONAMES_HOME = "https://www.geonames.org/"

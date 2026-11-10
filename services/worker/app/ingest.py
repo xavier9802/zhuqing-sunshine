@@ -24,7 +24,6 @@ from app.providers.open_meteo import (
     response_items,
 )
 
-
 OPEN_METEO_SINGLE_RUNS_URL = "https://open-meteo.com/en/docs/single-runs-api"
 METADATA_CONSISTENCY_DELAY = timedelta(minutes=10)
 
