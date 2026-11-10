@@ -152,32 +152,53 @@ def parse_station_catalog(content: str) -> list[Station]:
     return sorted(stations.values(), key=lambda item: item.station_id)
 
 
-def parse_synop_sky_cover(report: str) -> float | None:
-    """Decode total cloud amount N from an FM-12 AAXX Nddff group."""
-    text = report.upper()
+def _synop_cloud_group(report: str) -> str | None:
+    text = report.upper().replace("=", " ")
+    tokens = text.split()
+    # NOAA GHCNh REM stores many FM-12 reports in compact form:
+    # SYN<day/hour/station> iRiXhVV Nddff ...
+    if tokens and tokens[0].startswith("SYN") and len(tokens) >= 3:
+        return tokens[2]
     match = re.search(
-        r"\bAAXX\s+\d{5}\s+\d{5}\s+\d{5}\s+([0-9])\d{4}\b",
+        r"\\bAAXX\\s+\\d{5}\\s+\\d{5}\\s+\\d{5}\\s+([^\\s]+)",
         text,
     )
-    if not match:
+    return match.group(1) if match else None
+
+
+def parse_synop_sky_cover(report: str) -> float | None:
+    """Decode FM-12 total cloud amount N from either NOAA compact or AAXX form."""
+    group = _synop_cloud_group(report)
+    if not group or not re.fullmatch(r"[0-9]\\d{4}", group):
+        # A slash in Nddff means total cloud amount was not reported.
         return None
-    amount = int(match.group(1))
+    amount = int(group[0])
     if amount <= 8:
         return round(amount / 8 * 100, 1)
     if amount == 9:
-        # N=9 means sky obscured; it is not a clear-sky observation.
         return 100.0
     return None
 
 
 def parse_synop_precipitation(report: str) -> bool:
     """Detect present precipitation from the FM-12 ww group when available."""
-    text = report.upper()
-    if "AAXX" not in text:
-        return False
+    text = report.upper().replace("=", " ")
     tokens = text.split()
-    for token in tokens[5:]:
-        match = re.fullmatch(r"7(\d{2})\d{2}", token)
+    if tokens and tokens[0].startswith("SYN"):
+        weather_groups = tokens[3:]
+    elif "AAXX" in text:
+        cloud_group = _synop_cloud_group(text)
+        if not cloud_group:
+            return False
+        try:
+            start = next(i for i, token in enumerate(tokens) if token == cloud_group)
+        except StopIteration:
+            return False
+        weather_groups = tokens[start + 1:]
+    else:
+        return False
+    for token in weather_groups:
+        match = re.fullmatch(r"7(\\d{2})\\d{2}", token)
         if match:
             # SYNOP ww 50–99 describes current drizzle/rain/snow or other
             # precipitation phenomena. 20–49 are not treated as current rain.
@@ -481,10 +502,18 @@ def load_station_year(
         report = _field(row, "REM", "REMARKS") or ""
         if report and diagnostics is not None:
             diagnostics["rows_with_raw_report"] = diagnostics.get("rows_with_raw_report", 0) + 1
-            if parse_synop_sky_cover(report) is not None:
-                diagnostics["rows_with_fm12_synop_cloud"] = (
-                    diagnostics.get("rows_with_fm12_synop_cloud", 0) + 1
+            if report.upper().startswith("SYN") or "AAXX" in report.upper():
+                diagnostics["rows_with_fm12_synop_report"] = (
+                    diagnostics.get("rows_with_fm12_synop_report", 0) + 1
                 )
+                if parse_synop_sky_cover(report) is None:
+                    diagnostics["rows_with_fm12_synop_cloud_missing"] = (
+                        diagnostics.get("rows_with_fm12_synop_cloud_missing", 0) + 1
+                    )
+                else:
+                    diagnostics["rows_with_fm12_synop_cloud"] = (
+                        diagnostics.get("rows_with_fm12_synop_cloud", 0) + 1
+                    )
             if parse_synop_precipitation(report):
                 diagnostics["rows_with_fm12_synop_precipitation"] = (
                     diagnostics.get("rows_with_fm12_synop_precipitation", 0) + 1
