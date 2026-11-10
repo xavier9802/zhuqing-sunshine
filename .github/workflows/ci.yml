@@ -46,6 +46,7 @@ jobs:
           test -f apps/web/out/index.html
           test -f apps/web/out/404.html
           test -f apps/web/out/data/status.json
+          test -f apps/web/out/data/consensus.json
           test -f apps/web/out/data/overview/ecmwf_ifs.json
           test -f apps/web/out/city/chengdu/index.html
           test -f apps/web/out/city/chongqing/index.html

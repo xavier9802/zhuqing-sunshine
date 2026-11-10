@@ -89,12 +89,6 @@ function formatTime(value?: string | null, withDate = true) {
   }).format(date);
 }
 
-function windowLabel(window: SunshineWindow | null | undefined, forecastReady: boolean) {
-  if (!forecastReady) return "等待模型数据";
-  if (!window) return "当前预报期内未发现";
-  return formatTime(window.starts_at) + " — " + formatTime(window.ends_at, false);
-}
-
 function hourLabel(value: string) {
   const end = new Date(value);
   const start = new Date(end.getTime() - 60 * 60 * 1000);
