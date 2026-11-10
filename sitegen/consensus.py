@@ -74,7 +74,6 @@ def build_consensus(output: Path, model_statuses: list[dict[str, Any]], generate
             "mean_bright_sky_coverage_pct": avg("mean_bright_sky_coverage_pct"),
             "sunny_score": avg("sunny_score"),
             "mean_shortwave_radiation_wm2": avg("mean_shortwave_radiation_wm2"),
-            "mean_visibility_m": avg("mean_visibility_m"),
             "clear_hours": round(avg("clear_hours") or 0),
             "bright_hours": round(avg("bright_hours") or 0),
             "rain_hours": round(avg("rain_hours") or 0),
