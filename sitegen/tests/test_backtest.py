@@ -7,6 +7,8 @@ from sitegen.backtest import (
     _binary_metrics,
     parse_observation,
     parse_sky_cover,
+    parse_sky_cover_code,
+    parse_sky_cover_from_row,
     parse_station_catalog,
     sample_run_dates,
     select_stations,
@@ -90,3 +92,34 @@ def test_binary_metrics_do_not_invent_probability() -> None:
     assert result["precision_pct"] == 50
     assert result["recall_pct"] == 50
     assert result["f1_pct"] == 50
+
+def test_parse_numeric_ghcnh_sky_cover_codes() -> None:
+    assert parse_sky_cover_code("0") == 0
+    assert parse_sky_cover_code("2") == 25
+    assert parse_sky_cover_code("4") == 50
+    assert parse_sky_cover_code("8") == 100
+    assert parse_sky_cover_code("9") == 100
+    assert parse_sky_cover_code("99") is None
+
+
+def test_parse_ghcnh_overall_and_summed_sky_cover_fields() -> None:
+    assert parse_sky_cover_from_row({"sky_condition": "2/1/0"}) == 25
+    assert parse_sky_cover_from_row({
+        "sky_cover_summation_1": "2",
+        "sky_cover_summation_2": "5",
+        "sky_cover_summation_3": "99",
+    }) == 62.5
+    assert parse_sky_cover_from_row({"sky_cover_layer_1": "FEW"}) == 18.75
+
+
+def test_parse_observation_can_use_native_ghcnh_cloud_field_without_metar() -> None:
+    row = parse_observation(
+        datetime(2025, 6, 15, 8, tzinfo=UTC),
+        "",
+        10.0,
+        0.0,
+        sky_cover_pct=parse_sky_cover_code("2"),
+    )
+    assert row is not None
+    assert row.cloud_cover_pct == 25
+    assert row.precipitation is False
