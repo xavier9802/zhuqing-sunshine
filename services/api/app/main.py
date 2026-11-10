@@ -97,7 +97,7 @@ def _grid_samples(session: Session, run_id: UUID, hours: int = 168) -> list[Grid
             ForecastHourly.run_id == run_id,
             ForecastLocation.location_type == "grid",
             ForecastLocation.is_active.is_(True),
-            ForecastHourly.valid_at >= now - timedelta(hours=1),
+            ForecastHourly.valid_at >= now,
             ForecastHourly.valid_at <= now + timedelta(hours=hours),
         )
         .order_by(ForecastHourly.valid_at)
