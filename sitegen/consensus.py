@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +54,7 @@ def build_consensus(output: Path, model_statuses: list[dict[str, Any]], generate
             values = [float(row[field]) for row in source_rows if row.get(field) is not None]
             return round(sum(values) / len(values), 1) if values else None
         agreement = round(top_count / len(rows) * 100) if rows else 0
+        lead_days = (date.fromisoformat(day) - date.fromisoformat(generated_at[:10])).days
         daily.append({
             "date": day,
             "condition": condition,
@@ -60,6 +62,8 @@ def build_consensus(output: Path, model_statuses: list[dict[str, Any]], generate
             "model_count": len(rows),
             "agreement_count": top_count,
             "agreement_pct": agreement,
+            "lead_days": lead_days,
+            "lead_label": "近时效" if lead_days <= 2 else "中期预报" if lead_days <= 5 else "远期预报",
             "agreement_label": f"{top_count}/{len(rows)} 个模型同类判断" if rows else "无有效模型",
             "sunshine_hours": avg("sunshine_hours"),
             "mean_cloud_cover_pct": avg("mean_cloud_cover_pct"),
@@ -69,6 +73,8 @@ def build_consensus(output: Path, model_statuses: list[dict[str, Any]], generate
             "mean_clear_sky_coverage_pct": avg("mean_clear_sky_coverage_pct"),
             "mean_bright_sky_coverage_pct": avg("mean_bright_sky_coverage_pct"),
             "sunny_score": avg("sunny_score"),
+            "mean_shortwave_radiation_wm2": avg("mean_shortwave_radiation_wm2"),
+            "mean_visibility_m": avg("mean_visibility_m"),
             "clear_hours": round(avg("clear_hours") or 0),
             "bright_hours": round(avg("bright_hours") or 0),
             "rain_hours": round(avg("rain_hours") or 0),

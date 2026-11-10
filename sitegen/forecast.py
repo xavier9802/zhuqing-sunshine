@@ -17,7 +17,7 @@ RAIN_HOURLY_MM = 0.1
 # probabilities and must be revised only after station verification.
 CLEAR_TOTAL_CLOUD_MAX = 30.0
 CLEAR_LOW_CLOUD_MAX = 25.0
-BRIGHT_TOTAL_CLOUD_MAX = 65.0
+BRIGHT_TOTAL_CLOUD_MAX = 85.0
 BRIGHT_LOW_CLOUD_MAX = 50.0
 
 MODEL_NAMES = {
@@ -243,7 +243,11 @@ def _day_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         if (row.get("bright_sky_coverage_pct") or 0) >= BASIN_SUNNY_COVERAGE_PCT
         and row.get("cloud_diagnostic_completeness_pct", 0) >= MIN_DATA_COMPLETENESS_PCT
     )
-    rain_hours = sum(1 for row in rows if row.get("precipitation_mm") is not None and row["precipitation_mm"] >= RAIN_HOURLY_MM)
+    rain_hours = sum(
+        1 for row in rows
+        if (row.get("precipitation_mm") is not None and row["precipitation_mm"] >= RAIN_HOURLY_MM)
+        or (row.get("rain_coverage_pct") is not None and row["rain_coverage_pct"] >= 10)
+    )
     def mean(key: str) -> float | None:
         values = [row[key] for row in valid if row.get(key) is not None]
         return sum(values) / len(values) if values else None
@@ -406,7 +410,7 @@ def city_daily_summary(samples: list[CityHour]) -> list[dict[str, Any]]:
         low_visibility_hours = sum(1 for row in day_rows if row.visibility_m is not None and row.visibility_m < 1000)
         rain_hours = sum(1 for row in day_rows if row.precipitation_mm is not None and row.precipitation_mm >= RAIN_HOURLY_MM)
         clear_hours = sum(1 for row in day_rows if row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS and row.cloud_cover_pct is not None and row.cloud_cover_pct <= CLEAR_TOTAL_CLOUD_MAX and row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct <= CLEAR_LOW_CLOUD_MAX and row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM)
-        bright_hours = sum(1 for row in day_rows if row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS and row.cloud_cover_pct is not None and row.cloud_cover_pct <= BRIGHT_TOTAL_CLOUD_MAX and row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct <= BRIGHT_LOW_CLOUD_MAX and row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM)
+        bright_hours = sum(1 for row in day_rows if row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS and row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct <= BRIGHT_LOW_CLOUD_MAX and row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM and (row.visibility_m is None or row.visibility_m >= 1000))
         mean_cloud = sum(clouds) / len(clouds) if clouds else None
         mean_low = sum(low_clouds) / len(low_clouds) if low_clouds else None
         condition = _classify_day(
