@@ -195,3 +195,10 @@ def test_parse_observation_uses_fm12_cloud_and_weather_groups() -> None:
     assert row.cloud_cover_pct == 100
     assert row.precipitation is True
 
+def test_parse_noaa_compact_synop_report() -> None:
+    # NOAA GHCNh REM uses SYN<encoded header> followed by iRiXhVV Nddff.
+    assert parse_synop_sky_cover("SYN12457516 04850 32902 10266 76000") == 37.5
+    assert parse_synop_sky_cover("SYN12457516 04850 /2902 10266 76000") is None
+    assert parse_synop_precipitation("SYN12457516 04850 /2902 10266 76000") is True
+    assert parse_synop_precipitation("SYN12457516 04850 /2902 10266 70000") is False
+\n
