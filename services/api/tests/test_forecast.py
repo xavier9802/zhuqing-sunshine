@@ -44,7 +44,7 @@ def test_basin_window_requires_two_consecutive_hours_and_good_coverage() -> None
     window = find_basin_sunshine_window(hours)
     assert window is not None
     assert window["starts_at"].startswith("2026-11-10T10:00:00")
-    assert window["expected_sunshine_minutes"] == 37.5
+    assert window["expected_sunshine_minutes"] == 75.0
 
 
 def test_basin_window_does_not_bridge_a_missing_hour() -> None:
@@ -64,7 +64,7 @@ def test_city_window_uses_two_consecutive_effective_sunshine_hours() -> None:
     ]
     window = find_city_sunshine_window(rows)
     assert window is not None
-    assert window["expected_sunshine_minutes"] == 36.7
+    assert window["expected_sunshine_minutes"] == 73.3
 
 
 def test_daily_summary_is_local_calendar_day() -> None:
@@ -76,3 +76,26 @@ def test_daily_summary_is_local_calendar_day() -> None:
     daily = aggregate_daily(rows)
     assert daily[0]["date"] == "2026-11-10"
     assert daily[0]["sunshine_hours"] == 1.5
+
+
+def test_basin_window_returns_the_entire_contiguous_sunshine_period() -> None:
+    t = datetime(2026, 11, 10, 2, tzinfo=UTC)
+    samples = [
+        GridHour(t + timedelta(hours=i), 100, 2400, 20, 0, False)
+        for i in range(3)
+    ]
+    window = find_basin_sunshine_window(aggregate_basin_hours(samples))
+    assert window is not None
+    assert window["ends_at"].startswith("2026-11-10T13:00:00")
+    assert window["expected_sunshine_minutes"] == 120
+
+
+def test_daily_total_ignores_hours_below_data_completeness_threshold() -> None:
+    t = datetime(2026, 11, 10, 2, tzinfo=UTC)
+    rows = aggregate_basin_hours([
+        GridHour(t, 100, 3600, 20, 0, False),
+        GridHour(t + timedelta(hours=1), 20, 3600, 20, 0, False),
+        GridHour(t + timedelta(hours=1), 80, None, None, None, False),
+    ])
+    daily = aggregate_daily(rows)
+    assert daily[0]["sunshine_hours"] == 1.0

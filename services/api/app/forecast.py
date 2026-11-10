@@ -115,7 +115,11 @@ def aggregate_daily(hours: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     daily: list[dict[str, Any]] = []
     for day, rows in sorted(grouped.items()):
-        valid = [row for row in rows if row["sunshine_minutes"] is not None]
+        valid = [
+            row for row in rows
+            if row["sunshine_minutes"] is not None
+            and row.get("data_completeness_pct", 0) >= MIN_DATA_COMPLETENESS_PCT
+        ]
         sunshine_hours = sum(row["sunshine_minutes"] for row in valid) / 60
         coverage_values = [row["sunshine_coverage_pct"] for row in valid if row["sunshine_coverage_pct"] is not None]
         completeness_values = [row["data_completeness_pct"] for row in rows]
@@ -147,49 +151,60 @@ def find_basin_sunshine_window(hours: list[dict[str, Any]]) -> dict[str, Any] | 
     ]
     candidates.sort(key=lambda row: row["valid_at"])
     streak: list[dict[str, Any]] = []
+
+    def build_window(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        last_time = datetime.fromisoformat(rows[-1]["valid_at"])
+        return {
+            "starts_at": rows[0]["valid_at"],
+            "ends_at": (last_time + timedelta(hours=1)).isoformat(),
+            "expected_sunshine_minutes": round(
+                sum(item["sunshine_minutes"] or 0 for item in rows), 1
+            ),
+            "coverage_pct": round(
+                sum(item["sunshine_coverage_pct"] for item in rows) / len(rows), 1
+            ),
+            "source_model": None,
+            "basis": "连续至少 2 个小时，盆地有效日照覆盖率达到 50%",
+        }
+
     for row in candidates:
         current = datetime.fromisoformat(row["valid_at"])
         previous = datetime.fromisoformat(streak[-1]["valid_at"]) if streak else None
         if previous is not None and current - previous != timedelta(hours=1):
+            if len(streak) >= MIN_WINDOW_HOURS:
+                return build_window(streak)
             streak = []
         streak.append(row)
-        if len(streak) >= MIN_WINDOW_HOURS:
-            return {
-                "starts_at": streak[0]["valid_at"],
-                "ends_at": (current + timedelta(hours=1)).isoformat(),
-                "expected_sunshine_minutes": round(
-                    sum(item["sunshine_minutes"] or 0 for item in streak) / len(streak), 1
-                ),
-                "coverage_pct": round(
-                    sum(item["sunshine_coverage_pct"] for item in streak) / len(streak), 1
-                ),
-                "source_model": None,
-                "basis": "连续至少 2 个小时，盆地有效日照覆盖率达到 50%",
-            }
-    return None
+
+    return build_window(streak) if len(streak) >= MIN_WINDOW_HOURS else None
 
 
 def find_city_sunshine_window(samples: list[CityHour]) -> dict[str, Any] | None:
     rows = sorted(samples, key=lambda row: _as_utc(row.valid_at))
     streak: list[CityHour] = []
+
+    def build_window(items: list[CityHour]) -> dict[str, Any]:
+        return {
+            "starts_at": local_iso(items[0].valid_at),
+            "ends_at": local_iso(_as_utc(items[-1].valid_at) + timedelta(hours=1)),
+            "expected_sunshine_minutes": round(
+                sum(item.sunshine_seconds or 0 for item in items) / 60, 1
+            ),
+            "basis": "连续至少 2 个小时，每小时预计有效日照不少于 30 分钟",
+        }
+
     for row in rows:
         current = _as_utc(row.valid_at)
         previous = _as_utc(streak[-1].valid_at) if streak else None
         sunny = row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS
         if not sunny or (previous is not None and current - previous != timedelta(hours=1)):
+            if len(streak) >= MIN_WINDOW_HOURS:
+                return build_window(streak)
             streak = []
         if sunny:
             streak.append(row)
-        if len(streak) >= MIN_WINDOW_HOURS:
-            return {
-                "starts_at": local_iso(streak[0].valid_at),
-                "ends_at": local_iso(_as_utc(streak[-1].valid_at) + timedelta(hours=1)),
-                "expected_sunshine_minutes": round(
-                    sum(item.sunshine_seconds or 0 for item in streak) / len(streak) / 60, 1
-                ),
-                "basis": "连续至少 2 个小时，每小时预计有效日照不少于 30 分钟",
-            }
-    return None
+
+    return build_window(streak) if len(streak) >= MIN_WINDOW_HOURS else None
 
 
 def city_daily_summary(samples: list[CityHour]) -> list[dict[str, Any]]:
