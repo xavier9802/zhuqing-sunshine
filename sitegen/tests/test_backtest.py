@@ -201,4 +201,3 @@ def test_parse_noaa_compact_synop_report() -> None:
     assert parse_synop_sky_cover("SYN12457516 04850 /2902 10266 76000") is None
     assert parse_synop_precipitation("SYN12457516 04850 /2902 10266 76000") is True
     assert parse_synop_precipitation("SYN12457516 04850 /2902 10266 70000") is False
-\n
