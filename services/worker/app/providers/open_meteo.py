@@ -183,8 +183,17 @@ class OpenMeteoClient:
             )
         for index, item in enumerate(items):
             hourly = item.get("hourly")
-            if not isinstance(hourly, dict) or not isinstance(hourly.get("time"), list):
+            if not isinstance(hourly, dict) or not isinstance(hourly.get("time"), list) or not hourly["time"]:
                 raise TypeError(f"Missing hourly time series at batch index {index}")
+            sunshine = hourly.get("sunshine_duration")
+            if (
+                not isinstance(sunshine, list)
+                or len(sunshine) != len(hourly["time"])
+                or not any(value is not None for value in sunshine)
+            ):
+                raise ValueError(
+                    f"Missing or incomplete required sunshine_duration series at batch index {index}"
+                )
         return items
 
 

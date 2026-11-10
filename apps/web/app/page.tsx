@@ -70,8 +70,9 @@ function formatTime(value?: string | null, withDate = true) {
   }).format(date);
 }
 
-function windowLabel(window: SunshineWindow | null | undefined) {
-  if (!window) return "未来暂未发现";
+function windowLabel(window: SunshineWindow | null | undefined, forecastReady: boolean) {
+  if (!forecastReady) return "等待模型数据";
+  if (!window) return "当前预报期内未发现";
   return formatTime(window.starts_at) + " — " + formatTime(window.ends_at, false);
 }
 
@@ -81,7 +82,7 @@ function hourLabel(value: string) {
   const formatHour = (date: Date) => new Intl.DateTimeFormat("zh-CN", {
     timeZone: "Asia/Shanghai", hour: "2-digit", hour12: false,
   }).format(date);
-  return formatHour(start) + "–" + formatHour(end);
+  return formatHour(start) + "–" + formatHour(end) + "时";
 }
 
 export default function Home() {
@@ -154,7 +155,7 @@ export default function Home() {
       {loading && <div className="loading-line"/>}
 
       <section className="metrics">
-        <article className="metric featured"><label><Sun size={15}/> 下一次盆地放晴窗口</label><strong className="value pending">{windowLabel(overview?.next_sunshine_window)}</strong><small className="metric-note">{overview?.next_sunshine_window ? "预计连续有效日照约 " + (overview.next_sunshine_window.expected_sunshine_minutes / 60).toFixed(1) + " 小时" : overview?.status === "available" ? "当前预报周期内未达到放晴判定条件" : "完成真实模型数据采集后生成"}</small></article>
+        <article className="metric featured"><label><Sun size={15}/> 下一次盆地放晴窗口</label><strong className="value pending">{windowLabel(overview?.next_sunshine_window, overview?.status === "available")}</strong><small className="metric-note">{overview?.next_sunshine_window ? "预计连续有效日照约 " + (overview.next_sunshine_window.expected_sunshine_minutes / 60).toFixed(1) + " 小时" : overview?.status === "available" ? "当前预报周期内未达到放晴判定条件" : "完成真实模型数据采集后生成"}</small></article>
         <article className="metric"><label><Waves size={15}/> 所选时次平均日照</label><strong>{selectedHour?.sunshine_minutes == null ? "—" : selectedHour.sunshine_minutes.toFixed(0)} <small>分钟/小时</small></strong><small className="metric-note">按网格有效面积加权</small></article>
         <article className="metric"><label><CloudSun size={15}/> 有效日照覆盖</label><strong>{selectedHour?.sunshine_coverage_pct == null ? "—" : selectedHour.sunshine_coverage_pct.toFixed(0)} <small>%</small></strong><small className="metric-note">每小时有效日照不少于 30 分钟的区域占比</small></article>
         <article className="metric"><label><Compass size={15}/> 数据完整度</label><strong>{selectedHour?.data_completeness_pct == null ? "—" : selectedHour.data_completeness_pct.toFixed(0)} <small>%</small></strong><small className="metric-note">本时次有有效日照数据的网格面积</small></article>

@@ -122,3 +122,35 @@ def test_client_does_not_retry_bad_request() -> None:
             client._get_json("https://api.open-meteo.com/test")
     finally:
         http_client.close()
+
+
+def test_client_rejects_missing_required_sunshine_duration() -> None:
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={"hourly": {"time": ["2026-11-10T00:00"], "cloud_cover": [10]}},
+            )
+        )
+    )
+    client = OpenMeteoClient(
+        "https://api.open-meteo.com",
+        http_client=http_client,
+    )
+    try:
+        with pytest.raises(ValueError, match="sunshine_duration"):
+            client.fetch_forecast_batch(
+                model_id="ecmwf_ifs025",
+                locations=[
+                    WeatherLocation(
+                        location_id=1,
+                        location_key="city:chengdu",
+                        latitude=30.5,
+                        longitude=104.0,
+                    )
+                ],
+                run_at=datetime(2026, 11, 10, 0, 0, tzinfo=UTC),
+                forecast_days=1,
+            )
+    finally:
+        http_client.close()

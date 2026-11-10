@@ -220,6 +220,7 @@ def ingest_model(
         "timezone": "UTC",
         "cell_selection": "land",
         "hourly_variables": list(spec.hourly_variables),
+        "sunshine_duration_time_basis": "preceding_hour; timestamp_is_interval_end",
         "models": model_id,
         "dni_method": spec.dni_method,
         "endpoint": "single-runs-api",
