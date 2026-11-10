@@ -35,7 +35,6 @@ export default function SunshineMap({ apiBase, model, validAt }: Props) {
       zoom: 6.1,
       minZoom: 5,
       maxZoom: 10,
-      attributionControl: true,
       style: {
         version: 8,
         sources: {

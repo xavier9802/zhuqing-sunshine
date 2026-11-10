@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# FastAPI dependency and query objects are intentionally declared in route signatures.
+# ruff: noqa: B008
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -114,6 +117,7 @@ def _grid_samples(session: Session, run_id: UUID, hours: int = 168) -> list[Grid
 
 
 def _city_samples(session: Session, run_id: UUID, slug: str | None = None) -> list[tuple[ForecastLocation, list[CityHour]]]:
+    now = datetime.now(UTC)
     statement = (
         select(
             ForecastLocation,
