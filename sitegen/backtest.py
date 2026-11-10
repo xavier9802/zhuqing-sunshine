@@ -1146,16 +1146,29 @@ def run_backtest(
     finally:
         forecast_client.close()
 
-    lead_summaries = {
-        str(lead): _lead_summary(samples_by_lead[lead])
-        for lead in (1, 2, 3)
+    all_samples_by_model = {
+        model_id: [
+            sample
+            for lead in (1, 2, 3)
+            for sample in samples_by_model[model_id][lead]
+        ]
+        for model_id in FORECAST_MODELS
     }
-    all_samples = [
-        sample
-        for lead in (1, 2, 3)
-        for sample in samples_by_lead[lead]
-    ]
-    quality = sample_quality_gate(all_samples)
+    lead_summaries_by_model = {
+        model_id: {
+            str(lead): _lead_summary(samples_by_model[model_id][lead])
+            for lead in (1, 2, 3)
+        }
+        for model_id in FORECAST_MODELS
+    }
+    quality_by_model = {
+        model_id: sample_quality_gate(all_samples_by_model[model_id])
+        for model_id in FORECAST_MODELS
+    }
+    all_samples = all_samples_by_model[FORECAST_MODEL]
+    lead_summaries = lead_summaries_by_model[FORECAST_MODEL]
+    quality = quality_by_model[FORECAST_MODEL]
+    common_cloud_comparison = _common_cloud_model_comparison(samples_by_model)
     all_solar_samples_by_model = {
         model_id: [
             sample
@@ -1208,6 +1221,13 @@ def run_backtest(
         "station_count": quality["verified_station_count"],
         "candidate_station_count": len(stations),
         "quality_gates": quality,
+        "quality_gates_by_model": quality_by_model,
+        "lead_days_by_model": lead_summaries_by_model,
+        "common_case_cloud_model_comparison": common_cloud_comparison,
+        "sample_count_by_model": {
+            model_id: len(all_samples_by_model[model_id])
+            for model_id in FORECAST_MODELS
+        },
         "nasa_power_source": {
             "provider": "NASA POWER Daily API",
             "parameter": "ALLSKY_SFC_SW_DWN",
@@ -1222,8 +1242,13 @@ def run_backtest(
         "nasa_power_radiation_by_model": solar_summaries_by_model,
         "nasa_power_radiation_common_case_comparison": common_model_comparison,
         "nasa_power_radiation_sample_count": len(all_solar_samples),
+        "nasa_power_radiation_sample_count_by_model": {
+            model_id: len(all_solar_samples_by_model[model_id])
+            for model_id in FORECAST_MODELS
+        },
         "nasa_power_radiation_samples": all_solar_samples,
         "nasa_power_radiation_samples_by_model": all_solar_samples_by_model,
+        "samples_by_model": all_samples_by_model,
         "station_diagnostics": station_diagnostics,
         "lead_days": lead_summaries,
         "sample_count": len(all_samples),
@@ -1247,7 +1272,7 @@ def run_backtest(
                 "GHCNh 站点主要为机场/地面报文站，空间分布稀疏，不能代表整个盆地每个网格。",
                 "METAR 云量是天空状况代理，不是地面日照时数传感器；本报告不能验证 sunshine_duration 的分钟级误差。",
                 "观测缺测、报文类型和站点代表性会影响样本量；不将缺测视为晴天或无降水。",
-                "NOAA 云况晴好标签仍以 ECMWF IFS HRES 为基准；HRES、IFS025、AIFS025 的太阳辐射误差单独比较，不能将辐射代理当作三个模型的晴天概率标签。",
+                "HRES、IFS025、AIFS025 均使用相同 NOAA 站点观测进行晴好分类评估，并使用相同 NASA POWER 点位/日期比较辐射误差；站点数量少，结果仅作模型筛选依据。",
             ],
             "boundary_source": boundary_metadata.get("source_name"),
             "boundary_caveat": boundary_metadata.get("boundary_caveat"),
