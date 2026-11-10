@@ -10,6 +10,7 @@ from sitegen.backtest import (
     parse_sky_cover_code,
     parse_sky_cover_from_row,
     parse_station_catalog,
+    parse_synop_sky_cover,
     sample_quality_gate,
     sample_run_dates,
     select_stations,
@@ -23,6 +24,15 @@ def test_parse_metar_sky_cover_categories() -> None:
     assert parse_sky_cover("METAR ZUUU 150000Z 02004MPS 9999 CAVOK 18/10 Q1018") == 26
     assert parse_sky_cover("METAR ZUUU 150000Z 02004MPS 0200 VV002 18/10 Q1018") == 100
     assert parse_sky_cover("METAR ZUUU 150000Z 02004MPS 18/10 Q1018") is None
+
+
+def test_parse_fm12_synop_total_cloud_amount() -> None:
+    assert parse_synop_sky_cover("AAXX 16004 56294 42960 00012 20008") == 0
+    assert parse_synop_sky_cover("AAXX 16004 56294 42960 30012 20008") == 37.5
+    assert parse_synop_sky_cover("AAXX 16004 56294 42960 80012 20008") == 100
+    assert parse_synop_sky_cover("AAXX 16004 56294 42960 90012 20008") == 100
+    assert parse_synop_sky_cover("AAXX 16004 56294 42960 /0012 20008") is None
+    assert parse_synop_sky_cover("METAR ZUUU 160000Z 9999 CLR") is None
 
 
 def test_parse_observation_uses_weather_and_visibility_fields() -> None:
@@ -112,6 +122,18 @@ def test_parse_ghcnh_overall_and_summed_sky_cover_fields() -> None:
         "sky_cover_summation_3": "99",
     }) == 62.5
     assert parse_sky_cover_from_row({"sky_cover_layer_1": "FEW"}) == 18.75
+
+
+def test_parse_observation_falls_back_to_synop_cloud_group() -> None:
+    row = parse_observation(
+        datetime(2025, 6, 15, 8, tzinfo=UTC),
+        "AAXX 15008 56294 42960 20012 20008",
+        10.0,
+        0.0,
+    )
+    assert row is not None
+    assert row.cloud_cover_pct == 25
+    assert row.precipitation is False
 
 
 def test_parse_observation_can_use_native_ghcnh_cloud_field_without_metar() -> None:
