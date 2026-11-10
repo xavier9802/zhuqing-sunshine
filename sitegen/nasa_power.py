@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from datetime import date
 from pathlib import Path
@@ -63,7 +64,7 @@ def parse_nasa_power_daily_payload(
             value = float(raw_value)
         except (TypeError, ValueError):
             continue
-        if value <= fill_value or value < 0 or value > 60:
+        if not math.isfinite(value) or value <= fill_value or value < 0 or value > 60:
             continue
         values[day] = value
 
