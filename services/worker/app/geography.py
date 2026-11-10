@@ -17,6 +17,7 @@ USGS_BOUNDARY_URL = (
     "https://pubs.usgs.gov/of/2000/of00-047/SHP_files/sed_basins.ZIP"
 )
 USGS_REPORT_URL = "https://pubs.usgs.gov/of/2000/of00-047/"
+USGS_METADATA_URL = "https://geo-nsdi.er.usgs.gov/metadata/open-file/00-47/sed_basins.faq.html"
 BOUNDARY_SLUG = "sichuan-basin-structural-sedimentary-proxy"
 
 
@@ -50,6 +51,28 @@ def _prj_for(shp_path: Path) -> Path | None:
             and path.suffix.casefold() == ".prj"
         ),
         None,
+    )
+
+
+def source_crs_for(shp_path: Path) -> tuple[CRS, str]:
+    prj_path = _prj_for(shp_path)
+    if prj_path is not None:
+        return (
+            CRS.from_wkt(prj_path.read_text(encoding="utf-8")),
+            "Read from the shapefile .prj sidecar.",
+        )
+
+    # USGS FGDC FAQ confirms geographic latitude/longitude in decimal degrees,
+    # but does not declare a geodetic datum. WGS84 is therefore an explicit,
+    # provisional map-display assumption, not a claim about source survey datum.
+    return (
+        CRS.from_epsg(4326),
+        (
+            "The source archive has no .prj. USGS metadata FAQ states geographic "
+            "latitude/longitude in decimal degrees but does not identify the datum; "
+            "WGS84 is assigned provisionally for regional display and is not "
+            "survey-grade geodetic provenance."
+        ),
     )
 
 
@@ -96,13 +119,7 @@ def download_usgs_boundary(data_dir: Path) -> tuple[Any, dict[str, object]]:
         )
 
     geometry, attributes, shp_path = matches[0]
-    prj_path = _prj_for(shp_path)
-    if prj_path is None:
-        raise ValueError(
-            "USGS shapefile has no .prj CRS file. Refusing to guess its datum."
-        )
-
-    source_crs = CRS.from_wkt(prj_path.read_text(encoding="utf-8"))
+    source_crs, source_crs_basis = source_crs_for(shp_path)
     target_crs = CRS.from_epsg(4326)
     transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
     geometry = transform(transformer.transform, geometry)
@@ -137,12 +154,16 @@ def download_usgs_boundary(data_dir: Path) -> tuple[Any, dict[str, object]]:
         "source_map_year": 1992,
         "source_dataset_year": 2000,
         "source_crs": source_crs.to_string(),
+        "source_crs_basis": source_crs_basis,
+        "source_metadata_url": USGS_METADATA_URL,
         "target_crs": "EPSG:4326",
         "source_attributes": attributes,
         "boundary_caveat": (
             "Generalized structural sedimentary basin boundary digitized from a "
             "1:5,000,000 map; it is an initial operational proxy, not a definitive "
-            "geomorphological or administrative boundary."
+            "geomorphological or administrative boundary. The source archive has "
+            "no .prj and its metadata does not specify the geodetic datum; WGS84 is "
+            "used provisionally for regional display only."
         ),
     }
     return geometry, metadata
