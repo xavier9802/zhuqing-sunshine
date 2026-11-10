@@ -19,7 +19,7 @@ Measure the ECMWF IFS HRES forecast's ability to predict daytime clear/bright sk
 - Require at least four matched daylight hours for a station-day. Missing observations are excluded, never treated as clear or dry.
 - Use NOAA raw report remarks containing a parseable METAR/SYNOP cloud layer group. Cloud categories are converted to approximate oktas midpoints: FEW 18.75%, SCT 43.75%, BKN 75%, OVC/VV 100%; CLR/SKC 0%. CAVOK/NSC/NCD are conservatively set to 26% because they do not prove a completely cloud-free sky.
 - Decode native FM-12 reports in both AAXX and NOAA GHCNh compact `SYN...` forms. Total cloud amount `N` in the `Nddff` group is converted from oktas to percent; a slash (`/`) means cloud amount was not reported and is excluded, never treated as clear. The `7wwW1W2` group is used to flag present precipitation (`ww` 50–99). Station diagnostics distinguish FM-12 reports with a cloud amount from reports where `N` is missing.
-- Add an independent daily solar-radiation comparison using NASA POWER `ALLSKY_SFC_SW_DWN` (MJ/m²/day, local solar time) against the daily sum of Open-Meteo hourly shortwave radiation. NASA POWER is a 0.5° satellite/reanalysis product, not a direct sunshine-duration sensor; its results are reported separately and cannot by themselves calibrate sunshine probability.
+- Add an independent daily solar-radiation comparison using NASA POWER `ALLSKY_SFC_SW_DWN` (`AG` community, MJ/m²/day, local solar time) against the daily sum of Open-Meteo hourly shortwave radiation. NASA POWER uses a 0.5° × 0.625° meteorological grid and is a satellite/reanalysis product, not a direct sunshine-duration sensor; its results are reported separately and cannot by themselves calibrate sunshine probability.
 
 ## Metrics
 
