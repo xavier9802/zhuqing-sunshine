@@ -11,6 +11,7 @@ import httpx
 
 NASA_POWER_DAILY_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
 NASA_POWER_PARAMETER = "ALLSKY_SFC_SW_DWN"
+NASA_POWER_COMMUNITY = "AG"
 
 
 def _grid_key(payload: dict[str, Any], latitude: float, longitude: float) -> str:
@@ -36,6 +37,16 @@ def _grid_key(payload: dict[str, Any], latitude: float, longitude: float) -> str
     return f"{grid_lat:.2f},{grid_lon:.2f}"
 
 
+def _to_mj_m2_day(value: float, units: str | None) -> float:
+    normalized = (units or "").lower().replace(" ", "")
+    if "kwh" in normalized or "kw-hr" in normalized or "kwhr" in normalized:
+        return value * 3.6
+    if "w/m" in normalized or "wm-2" in normalized:
+        return value * 0.0864
+    # NASA POWER AG community daily energy-flux values are MJ/m²/day.
+    return value
+
+
 def parse_nasa_power_daily_payload(
     payload: dict[str, Any],
     *,
@@ -54,6 +65,13 @@ def parse_nasa_power_daily_payload(
     series = parameters.get(NASA_POWER_PARAMETER) if isinstance(parameters, dict) else None
     if not isinstance(series, dict):
         raise TypeError(f"NASA POWER response is missing {NASA_POWER_PARAMETER}")
+    parameter_metadata = payload.get("parameters")
+    metadata = (
+        parameter_metadata.get(NASA_POWER_PARAMETER)
+        if isinstance(parameter_metadata, dict)
+        else None
+    )
+    units = metadata.get("units") if isinstance(metadata, dict) else None
 
     values: dict[date, float] = {}
     for raw_day, raw_value in series.items():
@@ -61,7 +79,7 @@ def parse_nasa_power_daily_payload(
             continue
         try:
             day = date(int(raw_day[:4]), int(raw_day[4:6]), int(raw_day[6:8]))
-            value = float(raw_value)
+            value = _to_mj_m2_day(float(raw_value), units)
         except (TypeError, ValueError):
             continue
         if not math.isfinite(value) or value <= fill_value or value < 0 or value > 60:
@@ -94,7 +112,7 @@ def load_nasa_power_daily_radiation(
 
     params = {
         "parameters": NASA_POWER_PARAMETER,
-        "community": "RE",
+        "community": NASA_POWER_COMMUNITY,
         "longitude": f"{longitude:.5f}",
         "latitude": f"{latitude:.5f}",
         "start": start_date.strftime("%Y%m%d"),
