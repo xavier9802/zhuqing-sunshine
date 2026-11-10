@@ -7,8 +7,8 @@ import {
   RadioTower, Sun, Waves
 } from "lucide-react";
 import SunshineMap from "./components/SunshineMap";
+import { dataUrl } from "./lib/static-data";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const MODELS = [
   { id: "ecmwf_ifs", name: "ECMWF IFS HRES · 9 km" },
   { id: "ecmwf_ifs025", name: "ECMWF IFS · 0.25°" },
@@ -32,6 +32,7 @@ type Hour = {
   cloud_cover_pct: number | null;
   precipitation_mm: number | null;
   interpolated_area_pct: number | null;
+  grid_file?: string;
 };
 
 type Overview = {
@@ -99,16 +100,16 @@ export default function Home() {
     setLoading(true);
     setError("");
     Promise.all([
-      fetch(API_BASE + "/api/v1/overview?model=" + encodeURIComponent(model), { cache: "no-store", signal: controller.signal }).then(r => {
-        if (!r.ok) throw new Error("日照预测接口暂时不可用");
+      fetch(dataUrl("overview/" + model + ".json"), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("日照预测静态快照尚未生成");
         return r.json() as Promise<Overview>;
       }),
-      fetch(API_BASE + "/api/v1/cities?model=" + encodeURIComponent(model), { cache: "no-store", signal: controller.signal }).then(r => {
-        if (!r.ok) throw new Error("城市预测接口暂时不可用");
+      fetch(dataUrl("cities/" + model + ".json"), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("城市预测静态快照尚未生成");
         return r.json() as Promise<{ cities: City[] }>;
       }),
-      fetch(API_BASE + "/api/v1/data-status", { cache: "no-store", signal: controller.signal }).then(r => {
-        if (!r.ok) throw new Error("数据状态接口暂时不可用");
+      fetch(dataUrl("status.json"), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("数据状态静态快照尚未生成");
         return r.json() as Promise<DataStatus>;
       }),
     ]).then(([nextOverview, cityData, nextStatus]) => {
@@ -151,7 +152,7 @@ export default function Home() {
         <div className="sun-art" aria-hidden="true"><div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="sun-disc"><Sun size={52}/></div><div className="cloud cloud-a"/><div className="cloud cloud-b"/><small>SUNLIGHT WINDOW</small></div>
       </section>
 
-      {error && <div className="error-note">{error}。请确认 API 与数据库服务已经启动。</div>}
+      {error && <div className="error-note">{error}。请查看 GitHub Actions 最近一次数据更新任务。</div>}
       {loading && <div className="loading-line"/>}
 
       <section className="metrics">
@@ -172,7 +173,7 @@ export default function Home() {
           </div>
         </div>
         <div className="map-stage">
-          <SunshineMap apiBase={API_BASE} model={model} validAt={selectedTime}/>
+          <SunshineMap gridFile={selectedHour?.grid_file ?? null}/>
           {(!overview?.hourly?.length || !overview.model) && <div className="map-overlay"><MapPinned size={25}/><b>{loading ? "正在读取日照网格" : "日照网格尚未接入"}</b><span>{overview?.message || "完成地理数据导入和模型预报采集后，这里将展示四川盆地逐网格日照分布。"}</span></div>}
         </div>
         <div className="row" style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,marginTop:12,flexWrap:"wrap"}}>
@@ -214,7 +215,7 @@ export default function Home() {
         <article className="panel city-panel" id="cities">
           <div className="section-head"><div><label>CITY WATCH</label><h2>城市日照观察</h2></div><span className="muted-tag">{cities.length || 14} CITIES</span></div>
           {cities.length ? <div className="city-list">
-            {cities.map((city,index)=><Link href={"/city/" + city.slug} key={city.slug}>
+            {cities.map((city,index)=><Link href={"/city/" + city.slug + "?model=" + model} key={city.slug}>
               <small>{String(index+1).padStart(2,"0")}</small><b>{city.name}</b>
               <span>{city.next_sunshine_window ? formatTime(city.next_sunshine_window.starts_at,false) : "暂无连续日照"}</span><ArrowUpRight size={13}/>
             </Link>)}
