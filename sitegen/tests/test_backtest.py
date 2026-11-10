@@ -5,6 +5,8 @@ from shapely.geometry import box
 from sitegen.backtest import (
     Station,
     _binary_metrics,
+    _common_cloud_model_comparison,
+    _common_solar_model_comparison,
     parse_observation,
     parse_sky_cover,
     parse_sky_cover_code,
@@ -201,3 +203,38 @@ def test_parse_noaa_compact_synop_report() -> None:
     assert parse_synop_sky_cover("SYN12457516 04850 /2902 10266 76000") is None
     assert parse_synop_precipitation("SYN12457516 04850 /2902 10266 76000") is True
     assert parse_synop_precipitation("SYN12457516 04850 /2902 10266 70000") is False
+
+def test_common_cloud_model_comparison_uses_identical_cases() -> None:
+    sample = {
+        "station_id": "CHI0000ZUCK",
+        "target_date": "2025-06-16",
+        "lead_day": 1,
+        "forecast_condition": "sunny",
+        "observed_condition": "mostly_sunny",
+        "cloud_cover_abs_error_pct": 12.0,
+        "forecast_mean_cloud_cover_pct": 25.0,
+        "observed_mean_cloud_cover_pct": 37.0,
+    }
+    result = _common_cloud_model_comparison({
+        "ecmwf_ifs": {1: [sample], 2: [], 3: []},
+        "ecmwf_ifs025": {1: [sample], 2: [], 3: []},
+    })
+    assert result["common_case_count"] == 1
+    assert result["by_model"]["ecmwf_ifs"]["1"]["station_days"] == 1
+
+
+def test_common_solar_model_comparison_uses_identical_cases() -> None:
+    sample = {
+        "grid_key": "30.5,104.5",
+        "target_date": "2025-06-16",
+        "lead_day": 1,
+        "forecast_shortwave_mj_m2": 18.0,
+        "nasa_power_shortwave_mj_m2": 16.0,
+    }
+    result = _common_solar_model_comparison({
+        "ecmwf_ifs": {1: [sample], 2: [], 3: []},
+        "ecmwf_aifs025_single": {1: [sample], 2: [], 3: []},
+    })
+    assert result["common_case_count"] == 1
+    assert result["by_model"]["ecmwf_ifs"]["1"]["mae_mj_m2"] == 2.0
+
