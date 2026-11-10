@@ -19,6 +19,7 @@ from shapely.geometry import Point
 
 from sitegen.forecast import _classify_day
 from sitegen.geography import download_usgs_boundary
+from sitegen.nasa_power import load_nasa_power_daily_radiation
 from sitegen.open_meteo import OpenMeteoClient, WeatherLocation, parse_valid_time
 
 LOG = logging.getLogger("zhuqing.backtest")
@@ -700,6 +701,69 @@ def _lead_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _solar_radiation_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    errors = [
+        sample["forecast_shortwave_mj_m2"] - sample["nasa_power_shortwave_mj_m2"]
+        for sample in samples
+    ]
+    absolute_errors = [abs(value) for value in errors]
+    if not samples:
+        return {
+            "grid_days": 0,
+            "grid_count": 0,
+            "mae_mj_m2": None,
+            "rmse_mj_m2": None,
+            "bias_mj_m2": None,
+        }
+    return {
+        "grid_days": len(samples),
+        "grid_count": len({sample["grid_key"] for sample in samples}),
+        "mae_mj_m2": round(sum(absolute_errors) / len(absolute_errors), 2),
+        "rmse_mj_m2": round((sum(value * value for value in errors) / len(errors)) ** 0.5, 2),
+        "bias_mj_m2": round(sum(errors) / len(errors), 2),
+        "mean_forecast_mj_m2": round(
+            sum(sample["forecast_shortwave_mj_m2"] for sample in samples) / len(samples), 2
+        ),
+        "mean_nasa_power_mj_m2": round(
+            sum(sample["nasa_power_shortwave_mj_m2"] for sample in samples) / len(samples), 2
+        ),
+    }
+
+
+def _solar_radiation_quality_gate(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    grid_count = len({sample["grid_key"] for sample in samples})
+    lead_counts = {
+        str(lead): sum(sample["lead_day"] == lead for sample in samples)
+        for lead in (1, 2, 3)
+    }
+    months = {int(sample["target_date"][5:7]) for sample in samples}
+    seasons = {
+        "winter" if month in {12, 1, 2}
+        else "spring" if month in {3, 4, 5}
+        else "summer" if month in {6, 7, 8}
+        else "autumn"
+        for month in months
+    }
+    checks = {
+        "at_least_200_grid_days": len(samples) >= 200,
+        "at_least_4_unique_grid_cells": grid_count >= 4,
+        "at_least_50_days_per_lead": all(count >= 50 for count in lead_counts.values()),
+        "four_seasons_represented": len(seasons) == 4,
+    }
+    return {
+        "sufficient_for_radiation_research_review": bool(samples) and all(checks.values()),
+        "calibrated_sunshine_probability": False,
+        "checks": checks,
+        "unique_grid_cells": grid_count,
+        "lead_grid_days": lead_counts,
+        "represented_seasons": sorted(seasons),
+        "caveat": (
+            "NASA POWER ALLSKY_SFC_SW_DWN 是 0.5° 网格的卫星/再分析太阳辐射产品，"
+            "不是地面日照时数仪器观测；该门槛只允许开展辐射误差研究，不代表可直接标定晴天概率。"
+        ),
+    }
+
+
 def sample_quality_gate(samples: list[dict[str, Any]]) -> dict[str, Any]:
     verified_stations = {row["station_id"] for row in samples}
     months = {int(row["target_date"][5:7]) for row in samples}
@@ -784,6 +848,8 @@ def run_backtest(
         stations = select_stations(available_candidates, boundary, max_stations)
         station_observations: dict[str, list[Observation]] = {}
         station_diagnostics: dict[str, dict[str, Any]] = {}
+        nasa_power_data: dict[str, tuple[str, dict[date, float]]] = {}
+        nasa_power_status: dict[str, str] = {}
         for station in stations:
             records: list[Observation] = []
             diagnostics: dict[str, int] = {}
@@ -799,6 +865,25 @@ def run_backtest(
             )
             diagnostics["unique_usable_observations"] = len(unique)
             station_diagnostics[station.station_id] = diagnostics
+
+        nasa_start = min(target_dates)
+        nasa_end = max(target_dates)
+        for station in stations:
+            try:
+                grid_key, radiation_values = load_nasa_power_daily_radiation(
+                    station_http,
+                    station_id=station.station_id,
+                    latitude=station.latitude,
+                    longitude=station.longitude,
+                    start_date=nasa_start,
+                    end_date=nasa_end,
+                    cache_dir=cache_dir,
+                )
+                nasa_power_data[station.station_id] = (grid_key, radiation_values)
+                nasa_power_status[station.station_id] = "available"
+            except (httpx.HTTPError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+                LOG.warning("NASA POWER data unavailable for %s: %s", station.station_id, exc)
+                nasa_power_status[station.station_id] = str(exc)[:240]
     finally:
         station_http.close()
 
@@ -818,6 +903,8 @@ def run_backtest(
         for index, station in enumerate(stations)
     ]
     samples_by_lead: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    solar_samples_by_lead: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    seen_solar_samples: set[tuple[str, str, int]] = set()
     run_statuses: list[dict[str, Any]] = []
     try:
         for run_day in run_dates:
@@ -845,10 +932,46 @@ def run_backtest(
             for station, item in zip(stations, forecast_items, strict=True):
                 hourly = item.get("hourly", {})
                 time_values = hourly.get("time", [])
+                radiation_by_day: dict[date, list[float]] = defaultdict(list)
+                sunshine_by_day: dict[date, list[float]] = defaultdict(list)
+                for index, stamp in enumerate(time_values):
+                    valid_at = parse_valid_time(stamp)
+                    local_day = valid_at.astimezone(TIMEZONE).date()
+                    shortwave = _forecast_number(hourly, "shortwave_radiation", index)
+                    sunshine_seconds = _forecast_number(hourly, "sunshine_duration", index)
+                    if shortwave is not None:
+                        radiation_by_day[local_day].append(shortwave)
+                    if sunshine_seconds is not None:
+                        sunshine_by_day[local_day].append(sunshine_seconds)
+
                 station_obs = station_observations.get(station.station_id, [])
                 obs_times = [row.valid_at for row in station_obs]
                 for lead_day in (1, 2, 3):
                     target_day = run_at.astimezone(TIMEZONE).date() + timedelta(days=lead_day)
+
+                    nasa_record = nasa_power_data.get(station.station_id)
+                    if nasa_record is not None:
+                        grid_key, nasa_daily = nasa_record
+                        nasa_radiation = nasa_daily.get(target_day)
+                        forecast_radiation_hours = radiation_by_day.get(target_day, [])
+                        if nasa_radiation is not None and len(forecast_radiation_hours) >= 18:
+                            dedupe_key = (grid_key, target_day.isoformat(), lead_day)
+                            if dedupe_key not in seen_solar_samples:
+                                seen_solar_samples.add(dedupe_key)
+                                forecast_radiation = sum(forecast_radiation_hours) * 0.0036
+                                sunshine_hours = sum(sunshine_by_day.get(target_day, [])) / 3600
+                                solar_samples_by_lead[lead_day].append({
+                                    "run_at": run_at.isoformat(),
+                                    "target_date": target_day.isoformat(),
+                                    "lead_day": lead_day,
+                                    "grid_key": grid_key,
+                                    "station_id": station.station_id,
+                                    "forecast_shortwave_mj_m2": round(forecast_radiation, 2),
+                                    "nasa_power_shortwave_mj_m2": round(nasa_radiation, 2),
+                                    "forecast_sunshine_hours": round(sunshine_hours, 2),
+                                    "matched_radiation_hours": len(forecast_radiation_hours),
+                                })
+
                     pairs: list[tuple[dict[str, Any], Observation]] = []
                     for index, stamp in enumerate(time_values):
                         valid_at = parse_valid_time(stamp)
@@ -911,6 +1034,16 @@ def run_backtest(
         for sample in samples_by_lead[lead]
     ]
     quality = sample_quality_gate(all_samples)
+    all_solar_samples = [
+        sample
+        for lead in (1, 2, 3)
+        for sample in solar_samples_by_lead[lead]
+    ]
+    solar_quality = _solar_radiation_quality_gate(all_solar_samples)
+    solar_summaries = {
+        str(lead): _solar_radiation_summary(solar_samples_by_lead[lead])
+        for lead in (1, 2, 3)
+    }
     payload = {
         "status": (
             "insufficient_observations" if not all_samples
@@ -931,6 +1064,11 @@ def run_backtest(
         "station_count": quality["verified_station_count"],
         "candidate_station_count": len(stations),
         "quality_gates": quality,
+        "nasa_power_radiation_quality": solar_quality,
+        "nasa_power_station_status": nasa_power_status,
+        "nasa_power_radiation_by_lead": solar_summaries,
+        "nasa_power_radiation_sample_count": len(all_solar_samples),
+        "nasa_power_radiation_samples": all_solar_samples,
         "station_diagnostics": station_diagnostics,
         "lead_days": lead_summaries,
         "sample_count": len(all_samples),
@@ -943,6 +1081,12 @@ def run_backtest(
             "positive_class": "sunny 或 mostly_sunny",
             "cloud_mae_method": "先计算每个站点日匹配时次的平均绝对误差，再对站点日等权平均；不代表所有逐小时样本等权。",
             "forecast_cycle_note": "跨越不同 ECMWF IFS 版本的结果暂按总体展示，正式校准必须额外分版本回测。",
+            "solar_radiation_validation": (
+                "NASA POWER ALLSKY_SFC_SW_DWN daily LST values (MJ/m²/day) are compared with "
+                "the sum of Open-Meteo hourly shortwave_radiation for the corresponding "
+                "Asia/Shanghai local day (W/m² × 0.0036). NASA POWER is a 0.5° satellite/"
+                "reanalysis radiation product, not a direct sunshine-duration station sensor."
+            ),
             "cloud_cover": "优先采用 GHCNh sky_condition/sky_cover_summation/sky_cover_layer 观测字段；缺失时回退解析 METAR 原始报文。FEW/SCT/BKN/OVC/VV 转为 oktas 覆盖率区间中点；CAVOK/NSC/NCD 保守记为 26%，不等同于晴空",
             "limitations": [
                 "GHCNh 站点主要为机场/地面报文站，空间分布稀疏，不能代表整个盆地每个网格。",
