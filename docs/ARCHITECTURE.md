@@ -32,10 +32,10 @@ Open-Meteo model metadata + Single Runs API
 ## Data model
 
 - \`region_boundaries\`: source, scale, source CRS and versioned boundary geometry.
-- \`forecast_locations\`: city and grid sample points; grid locations retain clipped cell geometry and area weights.
+- \`forecast_locations\`: city and grid sample points; grid locations retain clipped cell geometry and area weights. Inactive locations are retained so historical forecast joins are not destroyed after a geography refresh.
 - \`forecast_runs\`: model ID, exact initialization time, retrieval time, provider publication time, native cadence and source provenance.
 - \`raw_forecast_payloads\`: request parameters, raw response JSON and SHA-256 checksum for each batch.
-- \`forecast_run_locations\`: mapping from requested location to the provider's resolved grid-cell coordinate.
+- \`forecast_run_locations\`: requested sample coordinates and the provider's resolved grid-cell coordinates, frozen for each model run.
 - \`forecast_hourly\`: normalized forecast variables keyed by run, location and valid time.
 
 ## Engineering rules
@@ -44,7 +44,7 @@ Open-Meteo model metadata + Single Runs API
 2. Keep model initialization, provider availability, local retrieval and forecast valid time separate.
 3. Preserve model-native temporal cadence and explicitly flag hourly interpolation.
 4. Keep missing provider values as NULL; never silently replace them with zero.
-5. Store provider-resolved grid-cell coordinates separately from requested sample coordinates.
+5. Store requested and provider-resolved coordinates separately for each model run.
 6. Store the raw response and its checksum before relying on normalized values.
 7. Do not call a model-consensus score a calibrated probability.
 8. The initial basin polygon is a generalized structural-sedimentary proxy, not an official administrative boundary.

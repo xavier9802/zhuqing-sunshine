@@ -52,6 +52,7 @@ class ForecastLocation(Base):
     __table_args__ = (
         UniqueConstraint("location_key", name="uq_forecast_locations_key"),
         Index("ix_forecast_locations_type", "location_type"),
+        Index("ix_forecast_locations_active", "is_active"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -66,6 +67,9 @@ class ForecastLocation(Base):
     grid_spacing_degrees: Mapped[float | None] = mapped_column(Float)
     region_boundary_id: Mapped[int | None] = mapped_column(
         ForeignKey("region_boundaries.id", ondelete="SET NULL")
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
     source_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     geometry = mapped_column(Geometry("POINT", srid=4326), nullable=False)
@@ -133,6 +137,8 @@ class ForecastRunLocation(Base):
     location_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("forecast_locations.id", ondelete="CASCADE"), primary_key=True
     )
+    requested_latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    requested_longitude: Mapped[float] = mapped_column(Float, nullable=False)
     resolved_latitude: Mapped[float | None] = mapped_column(Float)
     resolved_longitude: Mapped[float | None] = mapped_column(Float)
     elevation_m: Mapped[float | None] = mapped_column(Float)

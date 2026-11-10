@@ -5,6 +5,7 @@ from pathlib import Path
 
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
+from sqlalchemy import update
 
 from app.geography import BOUNDARY_SLUG, GridCell
 from app.models import ForecastLocation, RegionBoundary
@@ -45,6 +46,10 @@ def persist_geography(
             boundary.geometry = from_shape(boundary_geometry, srid=4326)
             boundary.source_crs = str(boundary_metadata["source_crs"])
 
+        session.execute(
+            update(ForecastLocation).values(is_active=False)
+        )
+
         grid_count = 0
         for cell in cells:
             record = (
@@ -61,6 +66,7 @@ def persist_geography(
                 "area_km2": cell.area_km2,
                 "grid_spacing_degrees": grid_spacing_degrees,
                 "region_boundary_id": boundary.id,
+                "is_active": True,
                 "source_metadata": {
                     "grid_i": cell.grid_i,
                     "grid_j": cell.grid_j,
@@ -97,6 +103,7 @@ def persist_geography(
                 "area_km2": None,
                 "grid_spacing_degrees": None,
                 "region_boundary_id": boundary.id,
+                "is_active": True,
                 "source_metadata": city,
                 "geometry": from_shape(
                     Point(float(city["longitude"]), float(city["latitude"])),

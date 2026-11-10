@@ -51,7 +51,9 @@ def _sha256(payload: Any) -> str:
 def load_forecast_locations(session_factory) -> list[WeatherLocation]:
     with session_factory() as session:
         rows = session.scalars(
-            select(ForecastLocation).order_by(ForecastLocation.location_key)
+            select(ForecastLocation)
+            .where(ForecastLocation.is_active.is_(True))
+            .order_by(ForecastLocation.location_key)
         ).all()
         return [
             WeatherLocation(
@@ -102,6 +104,8 @@ def _persist_batch(
                 ForecastRunLocation(
                     run_id=run.id,
                     location_id=location.location_id,
+                    requested_latitude=location.latitude,
+                    requested_longitude=location.longitude,
                     resolved_latitude=_as_float(item.get("latitude")),
                     resolved_longitude=_as_float(item.get("longitude")),
                     elevation_m=_as_float(item.get("elevation")),
