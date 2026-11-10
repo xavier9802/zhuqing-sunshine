@@ -23,15 +23,20 @@ def main() -> None:
                 meta = client.fetch_metadata(model_id)
                 if meta.model_run_at is None:
                     raise ValueError("Missing model run time")
-                values = client.fetch_forecast_batch(
+                hourly = client.fetch_forecast_batch(
                     model_id=model_id,
                     locations=[location],
                     run_at=meta.model_run_at,
                     forecast_days=1,
-                )[0]["hourly"]["sunshine_duration"]
-                valid = [item for item in values if item is not None]
-                if not valid:
-                    raise ValueError("No usable sunshine_duration")
+                )[0]["hourly"]
+                required = ("sunshine_duration", "cloud_cover", "cloud_cover_low",
+                            "precipitation", "is_day")
+                missing = [field for field in required if field not in hourly]
+                if missing:
+                    raise ValueError(f"Missing diagnostic variables: {missing}")
+                valid = [item for item in hourly["sunshine_duration"] if item is not None]
+                if not valid or not any(item is not None for item in hourly["cloud_cover_low"]):
+                    raise ValueError("No usable sunshine or low-cloud diagnostics")
                 statuses.append(
                     {
                         "model": model_id,

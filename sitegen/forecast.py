@@ -40,6 +40,7 @@ class GridHour:
     high_cloud_cover_pct: float | None = None
     relative_humidity_pct: float | None = None
     shortwave_radiation_wm2: float | None = None
+    visibility_m: float | None = None
     is_day: bool | None = None
 
 
@@ -57,6 +58,7 @@ class CityHour:
     relative_humidity_pct: float | None = None
     dew_point_c: float | None = None
     shortwave_radiation_wm2: float | None = None
+    visibility_m: float | None = None
     weather_code: float | None = None
     is_day: bool | None = None
 
@@ -152,13 +154,15 @@ def aggregate_basin_hours(samples: list[GridHour]) -> list[dict[str, Any]]:
             and row.low_cloud_cover_pct is not None
             and row.precipitation_mm is not None
             and row.sunshine_seconds >= SUNNY_HOUR_SECONDS
-            and row.cloud_cover_pct <= BRIGHT_TOTAL_CLOUD_MAX
             and row.low_cloud_cover_pct <= BRIGHT_LOW_CLOUD_MAX
             and row.precipitation_mm < RAIN_HOURLY_MM
         ]
         clear_area = sum(row.area_km2 for row in clear_rows)
         bright_area = sum(row.area_km2 for row in bright_rows)
         rainy_area = sum(row.area_km2 for row in rain_valid if row.precipitation_mm >= RAIN_HOURLY_MM)
+        visibility_valid = [row for row in rows if row.visibility_m is not None and row.area_km2 > 0]
+        visibility_area = sum(row.area_km2 for row in visibility_valid)
+        low_visibility_area = sum(row.area_km2 for row in visibility_valid if row.visibility_m < 1000)
         interpolated_area = sum(row.area_km2 for row in valid if row.is_interpolated)
         result.append({
             "valid_at": local_iso(valid_at),
@@ -176,6 +180,9 @@ def aggregate_basin_hours(samples: list[GridHour]) -> list[dict[str, Any]]:
             "relative_humidity_pct": round(_weighted_mean(rows, "relative_humidity_pct"), 1) if _weighted_mean(rows, "relative_humidity_pct") is not None else None,
             "precipitation_mm": round(_weighted_mean(rows, "precipitation_mm"), 2) if _weighted_mean(rows, "precipitation_mm") is not None else None,
             "shortwave_radiation_wm2": round(_weighted_mean(rows, "shortwave_radiation_wm2"), 1) if _weighted_mean(rows, "shortwave_radiation_wm2") is not None else None,
+            "visibility_m": round(_weighted_mean(rows, "visibility_m"), 0) if _weighted_mean(rows, "visibility_m") is not None else None,
+            "visibility_completeness_pct": round(visibility_area / total_area * 100, 1) if total_area else 0,
+            "low_visibility_coverage_pct": round(low_visibility_area / visibility_area * 100, 1) if visibility_area else None,
             "interpolated_area_pct": round(interpolated_area / valid_area * 100, 1),
         })
     return result
@@ -207,14 +214,16 @@ def _classify_day(
         return "mostly_sunny"
     if bright_hours >= 2:
         return "partly_cloudy"
-    if mean_low_cloud is not None and mean_low_cloud >= 75:
-        return "overcast"
-    if mean_cloud is not None and mean_cloud >= 80:
-        return "overcast"
-    if mean_low_cloud is not None and mean_low_cloud >= 55:
-        return "cloudy"
-    if mean_cloud is not None and mean_cloud >= 60:
-        return "cloudy"
+    if mean_low_cloud is not None:
+        if mean_low_cloud >= 75:
+            return "overcast"
+        if mean_low_cloud >= 55:
+            return "cloudy"
+    elif mean_cloud is not None:
+        if mean_cloud >= 80:
+            return "overcast"
+        if mean_cloud >= 60:
+            return "cloudy"
     if sunshine_hours is not None and sunshine_hours >= 3:
         return "variable"
     return "cloudy"
@@ -242,6 +251,9 @@ def _day_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     mean_bright = mean("bright_sky_coverage_pct")
     mean_cloud = mean("cloud_cover_pct")
     mean_low = mean("low_cloud_cover_pct")
+    mean_high = mean("high_cloud_cover_pct")
+    mean_shortwave = mean("shortwave_radiation_wm2")
+    mean_visibility = mean("visibility_m")
     mean_completeness = (
         sum(row.get("cloud_diagnostic_completeness_pct", 0) for row in rows) / len(rows)
         if rows else 0
@@ -265,6 +277,9 @@ def _day_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "sunshine_hours": round(sunshine_hours, 1) if valid else None,
         "mean_cloud_cover_pct": round(mean_cloud, 1) if mean_cloud is not None else None,
         "mean_low_cloud_cover_pct": round(mean_low, 1) if mean_low is not None else None,
+        "mean_high_cloud_cover_pct": round(mean_high, 1) if mean_high is not None else None,
+        "mean_shortwave_radiation_wm2": round(mean_shortwave, 1) if mean_shortwave is not None else None,
+        "mean_visibility_m": round(mean_visibility, 0) if mean_visibility is not None else None,
         "mean_clear_sky_coverage_pct": round(mean_clear, 1) if mean_clear is not None else None,
         "mean_bright_sky_coverage_pct": round(mean_bright, 1) if mean_bright is not None else None,
         "clear_hours": clear_hours,
@@ -351,6 +366,8 @@ def find_city_sunshine_window(samples: list[CityHour]) -> dict[str, Any] | None:
             return False
         if row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct > BRIGHT_LOW_CLOUD_MAX:
             return False
+        if row.visibility_m is not None and row.visibility_m < 1000:
+            return False
         return row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM
 
     def build_window(items: list[CityHour]) -> dict[str, Any]:
@@ -385,6 +402,8 @@ def city_daily_summary(samples: list[CityHour]) -> list[dict[str, Any]]:
         sunshine_hours = sum(values) / 3600 if values else None
         clouds = [row.cloud_cover_pct for row in day_rows if row.cloud_cover_pct is not None]
         low_clouds = [row.low_cloud_cover_pct for row in day_rows if row.low_cloud_cover_pct is not None]
+        visibilities = [row.visibility_m for row in day_rows if row.visibility_m is not None]
+        low_visibility_hours = sum(1 for row in day_rows if row.visibility_m is not None and row.visibility_m < 1000)
         rain_hours = sum(1 for row in day_rows if row.precipitation_mm is not None and row.precipitation_mm >= RAIN_HOURLY_MM)
         clear_hours = sum(1 for row in day_rows if row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS and row.cloud_cover_pct is not None and row.cloud_cover_pct <= CLEAR_TOTAL_CLOUD_MAX and row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct <= CLEAR_LOW_CLOUD_MAX and row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM)
         bright_hours = sum(1 for row in day_rows if row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS and row.cloud_cover_pct is not None and row.cloud_cover_pct <= BRIGHT_TOTAL_CLOUD_MAX and row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct <= BRIGHT_LOW_CLOUD_MAX and row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM)
@@ -403,6 +422,8 @@ def city_daily_summary(samples: list[CityHour]) -> list[dict[str, Any]]:
             "sunshine_hours": round(sunshine_hours, 1) if sunshine_hours is not None else None,
             "mean_cloud_cover_pct": round(mean_cloud, 1) if mean_cloud is not None else None,
             "mean_low_cloud_cover_pct": round(mean_low, 1) if mean_low is not None else None,
+            "mean_visibility_m": round(sum(visibilities) / len(visibilities), 0) if visibilities else None,
+            "low_visibility_hours": low_visibility_hours,
             "clear_hours": clear_hours,
             "bright_hours": bright_hours,
             "rain_hours": rain_hours,

@@ -186,6 +186,7 @@ def _provider_row(hourly: dict[str, Any], index: int) -> dict[str, float | None]
         "humidity": _float(hourly, "relative_humidity_2m", index),
         "dew_point": _float(hourly, "dew_point_2m", index),
         "shortwave": _float(hourly, "shortwave_radiation", index),
+        "visibility": _float(hourly, "visibility", index),
         "weather_code": _float(hourly, "weather_code", index),
         "is_day": bool(is_day_value) if is_day_value is not None else None,
     }
@@ -298,6 +299,7 @@ def produce_model(
                     high_cloud_cover_pct=row.get("high_cloud"),
                     relative_humidity_pct=row.get("humidity"),
                     shortwave_radiation_wm2=row.get("shortwave"),
+                    visibility_m=row.get("visibility"),
                     is_day=row.get("is_day"),
                 )
             )
@@ -312,6 +314,7 @@ def produce_model(
                     round(row["high_cloud"], 1) if row.get("high_cloud") is not None else None,
                     round(row["humidity"], 1) if row.get("humidity") is not None else None,
                     round(row["shortwave"], 1) if row.get("shortwave") is not None else None,
+                    round(row["visibility"], 0) if row.get("visibility") is not None else None,
                 ])
         if valid_at in grid_times:
             write_json(
@@ -389,6 +392,7 @@ def produce_model(
                     relative_humidity_pct=item.get("humidity"),
                     dew_point_c=item.get("dew_point"),
                     shortwave_radiation_wm2=item.get("shortwave"),
+                    visibility_m=item.get("visibility"),
                     weather_code=item.get("weather_code"),
                     is_day=item.get("is_day"),
                 )
@@ -427,6 +431,7 @@ def produce_model(
                             "relative_humidity_pct": row.relative_humidity_pct,
                             "dew_point_c": row.dew_point_c,
                             "shortwave_radiation_wm2": row.shortwave_radiation_wm2,
+                            "visibility_m": row.visibility_m,
                             "weather_code": row.weather_code,
                             "is_day": row.is_day,
                             "is_interpolated": row.is_interpolated,
