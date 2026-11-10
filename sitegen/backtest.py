@@ -1112,15 +1112,35 @@ def run_backtest(
         for sample in samples_by_lead[lead]
     ]
     quality = sample_quality_gate(all_samples)
-    all_solar_samples = [
-        sample
-        for lead in (1, 2, 3)
-        for sample in solar_samples_by_lead[lead]
-    ]
-    solar_quality = _solar_radiation_quality_gate(all_solar_samples)
-    solar_summaries = {
-        str(lead): _solar_radiation_summary(solar_samples_by_lead[lead])
-        for lead in (1, 2, 3)
+    all_solar_samples_by_model = {
+        model_id: [
+            sample
+            for lead in (1, 2, 3)
+            for sample in solar_samples_by_model[model_id][lead]
+        ]
+        for model_id in FORECAST_MODELS
+    }
+    solar_quality_by_model = {
+        model_id: _solar_radiation_quality_gate(all_solar_samples_by_model[model_id])
+        for model_id in FORECAST_MODELS
+    }
+    solar_summaries_by_model = {
+        model_id: {
+            str(lead): _solar_radiation_summary(solar_samples_by_model[model_id][lead])
+            for lead in (1, 2, 3)
+        }
+        for model_id in FORECAST_MODELS
+    }
+    all_solar_samples = all_solar_samples_by_model[FORECAST_MODEL]
+    solar_quality = solar_quality_by_model[FORECAST_MODEL]
+    solar_summaries = solar_summaries_by_model[FORECAST_MODEL]
+    common_model_comparison = _common_solar_model_comparison(solar_samples_by_model)
+    run_count_available_by_model = {
+        model_id: sum(
+            item["model_id"] == model_id and item["status"] == "available"
+            for item in run_statuses
+        )
+        for model_id in FORECAST_MODELS
     }
     payload = {
         "status": (
@@ -1130,13 +1150,15 @@ def run_backtest(
         ),
         "generated_at": datetime.now(UTC).isoformat(),
         "forecast_model": FORECAST_MODEL,
-        "forecast_source": "Open-Meteo Single Runs API (archived ECMWF IFS HRES)",
+        "forecast_models_evaluated": list(FORECAST_MODELS),
+        "forecast_source": "Open-Meteo Single Runs API (archived ECMWF model runs)",
         "observation_source": "NOAA NCEI Global Historical Climatology Network hourly (GHCNh)",
         "sample_period": {
             "start_date": min(run_dates).isoformat(),
             "end_date": max(run_dates).isoformat(),
             "run_count_requested": len(run_dates),
-            "run_count_available": sum(1 for item in run_statuses if item["status"] == "available"),
+            "run_count_available": run_count_available_by_model.get(FORECAST_MODEL, 0),
+            "run_count_available_by_model": run_count_available_by_model,
         },
         "stations": [asdict(station) for station in stations],
         "station_count": quality["verified_station_count"],
@@ -1150,10 +1172,14 @@ def run_backtest(
             "unit": "MJ/m²/day",
         },
         "nasa_power_radiation_quality": solar_quality,
+        "nasa_power_radiation_quality_by_model": solar_quality_by_model,
         "nasa_power_station_status": nasa_power_status,
         "nasa_power_radiation_by_lead": solar_summaries,
+        "nasa_power_radiation_by_model": solar_summaries_by_model,
+        "nasa_power_radiation_common_case_comparison": common_model_comparison,
         "nasa_power_radiation_sample_count": len(all_solar_samples),
         "nasa_power_radiation_samples": all_solar_samples,
+        "nasa_power_radiation_samples_by_model": all_solar_samples_by_model,
         "station_diagnostics": station_diagnostics,
         "lead_days": lead_summaries,
         "sample_count": len(all_samples),
@@ -1177,7 +1203,7 @@ def run_backtest(
                 "GHCNh 站点主要为机场/地面报文站，空间分布稀疏，不能代表整个盆地每个网格。",
                 "METAR 云量是天空状况代理，不是地面日照时数传感器；本报告不能验证 sunshine_duration 的分钟级误差。",
                 "观测缺测、报文类型和站点代表性会影响样本量；不将缺测视为晴天或无降水。",
-                "本轮只评估 ECMWF IFS HRES 单模型站点预报；不能据此校准三个模型的独立概率。",
+                "NOAA 云况晴好标签仍以 ECMWF IFS HRES 为基准；HRES、IFS025、AIFS025 的太阳辐射误差单独比较，不能将辐射代理当作三个模型的晴天概率标签。",
             ],
             "boundary_source": boundary_metadata.get("source_name"),
             "boundary_caveat": boundary_metadata.get("boundary_caveat"),
