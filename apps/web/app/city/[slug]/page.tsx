@@ -49,7 +49,7 @@ export default function CityPage() {
         <div className="window-card">
           <label><Sun size={13} style={{display:"inline",verticalAlign:"middle"}}/> 下一次连续日照窗口</label>
           <strong>{city.next_sunshine_window?fmt(city.next_sunshine_window.starts_at) + " — " + fmt(city.next_sunshine_window.ends_at):"当前预报周期内暂未发现"}</strong>
-          <small>{city.next_sunshine_window?.basis || "每小时预计有效日照不少于 30 分钟，连续至少 2 小时。"}</small>
+          <small>{city.next_sunshine_window ? "窗口内累计预计有效日照 " + (city.next_sunshine_window.expected_sunshine_minutes / 60).toFixed(1) + " 小时。" : "每小时预计有效日照不少于 30 分钟，连续至少 2 小时。"} {city.next_sunshine_window?.basis || ""}</small>
         </div>
       </section>
       <section className="city-stats">
