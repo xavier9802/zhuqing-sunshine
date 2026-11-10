@@ -903,75 +903,109 @@ def run_backtest(
         for index, station in enumerate(stations)
     ]
     samples_by_lead: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    solar_samples_by_lead: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    seen_solar_samples: set[tuple[str, str, int]] = set()
+    solar_samples_by_model: dict[str, dict[int, list[dict[str, Any]]]] = {
+        model_id: defaultdict(list) for model_id in FORECAST_MODELS
+    }
+    seen_solar_samples_by_model: dict[str, set[tuple[str, str, int]]] = {
+        model_id: set() for model_id in FORECAST_MODELS
+    }
     run_statuses: list[dict[str, Any]] = []
     try:
         for run_day in run_dates:
             run_at = datetime.combine(run_day, datetime.min.time(), tzinfo=UTC)
-            try:
-                forecast_items = forecast_client.fetch_forecast_batch(
-                    model_id=FORECAST_MODEL,
-                    locations=station_locations,
-                    run_at=run_at,
-                    forecast_days=5,
-                )
-            except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
-                LOG.warning("Forecast run %s unavailable: %s", run_at.isoformat(), exc)
+            model_forecasts: dict[str, list[dict[str, Any]]] = {}
+            for model_id in FORECAST_MODELS:
+                try:
+                    forecast_items = forecast_client.fetch_forecast_batch(
+                        model_id=model_id,
+                        locations=station_locations,
+                        run_at=run_at,
+                        forecast_days=5,
+                    )
+                except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
+                    LOG.warning(
+                        "Forecast run %s unavailable for %s: %s",
+                        run_at.isoformat(), model_id, exc,
+                    )
+                    run_statuses.append({
+                        "run_at": run_at.isoformat(),
+                        "model_id": model_id,
+                        "status": "unavailable",
+                        "reason": str(exc)[:240],
+                    })
+                    continue
+
+                model_forecasts[model_id] = forecast_items
                 run_statuses.append({
                     "run_at": run_at.isoformat(),
-                    "status": "unavailable",
-                    "reason": str(exc)[:240],
+                    "model_id": model_id,
+                    "status": "available",
+                    "station_count": len(forecast_items),
                 })
+
+                # Compare each model's daily radiation with the same NASA POWER
+                # point/day reference. This remains separate from NOAA cloud labels.
+                for station, item in zip(stations, forecast_items, strict=True):
+                    hourly = item.get("hourly", {})
+                    time_values = hourly.get("time", [])
+                    radiation_by_day: dict[date, list[float]] = defaultdict(list)
+                    sunshine_by_day: dict[date, list[float]] = defaultdict(list)
+                    for index, stamp in enumerate(time_values):
+                        valid_at = parse_valid_time(stamp)
+                        local_day = valid_at.astimezone(TIMEZONE).date()
+                        shortwave = _forecast_number(hourly, "shortwave_radiation", index)
+                        sunshine_seconds = _forecast_number(hourly, "sunshine_duration", index)
+                        if shortwave is not None:
+                            radiation_by_day[local_day].append(shortwave)
+                        if sunshine_seconds is not None:
+                            sunshine_by_day[local_day].append(sunshine_seconds)
+
+                    nasa_record = nasa_power_data.get(station.station_id)
+                    if nasa_record is None:
+                        continue
+                    spatial_key, nasa_daily = nasa_record
+                    for lead_day in (1, 2, 3):
+                        target_day = (
+                            run_at.astimezone(TIMEZONE).date()
+                            + timedelta(days=lead_day)
+                        )
+                        nasa_radiation = nasa_daily.get(target_day)
+                        forecast_radiation_hours = radiation_by_day.get(target_day, [])
+                        if nasa_radiation is None or len(forecast_radiation_hours) < 18:
+                            continue
+                        dedupe_key = (spatial_key, target_day.isoformat(), lead_day)
+                        if dedupe_key in seen_solar_samples_by_model[model_id]:
+                            continue
+                        seen_solar_samples_by_model[model_id].add(dedupe_key)
+                        forecast_radiation = sum(forecast_radiation_hours) * 0.0036
+                        sunshine_hours = sum(sunshine_by_day.get(target_day, [])) / 3600
+                        solar_samples_by_model[model_id][lead_day].append({
+                            "run_at": run_at.isoformat(),
+                            "target_date": target_day.isoformat(),
+                            "lead_day": lead_day,
+                            "grid_key": spatial_key,
+                            "station_id": station.station_id,
+                            "model_id": model_id,
+                            "forecast_shortwave_mj_m2": round(forecast_radiation, 2),
+                            "nasa_power_shortwave_mj_m2": round(nasa_radiation, 2),
+                            "forecast_sunshine_hours": round(sunshine_hours, 2),
+                            "matched_radiation_hours": len(forecast_radiation_hours),
+                        })
+
+            # NOAA cloud-condition verification remains on the HRES baseline.
+            forecast_items = model_forecasts.get(FORECAST_MODEL)
+            if forecast_items is None:
                 continue
-            run_statuses.append({
-                "run_at": run_at.isoformat(),
-                "status": "available",
-                "station_count": len(forecast_items),
-            })
             for station, item in zip(stations, forecast_items, strict=True):
                 hourly = item.get("hourly", {})
                 time_values = hourly.get("time", [])
-                radiation_by_day: dict[date, list[float]] = defaultdict(list)
-                sunshine_by_day: dict[date, list[float]] = defaultdict(list)
-                for index, stamp in enumerate(time_values):
-                    valid_at = parse_valid_time(stamp)
-                    local_day = valid_at.astimezone(TIMEZONE).date()
-                    shortwave = _forecast_number(hourly, "shortwave_radiation", index)
-                    sunshine_seconds = _forecast_number(hourly, "sunshine_duration", index)
-                    if shortwave is not None:
-                        radiation_by_day[local_day].append(shortwave)
-                    if sunshine_seconds is not None:
-                        sunshine_by_day[local_day].append(sunshine_seconds)
-
                 station_obs = station_observations.get(station.station_id, [])
                 obs_times = [row.valid_at for row in station_obs]
                 for lead_day in (1, 2, 3):
-                    target_day = run_at.astimezone(TIMEZONE).date() + timedelta(days=lead_day)
-
-                    nasa_record = nasa_power_data.get(station.station_id)
-                    if nasa_record is not None:
-                        grid_key, nasa_daily = nasa_record
-                        nasa_radiation = nasa_daily.get(target_day)
-                        forecast_radiation_hours = radiation_by_day.get(target_day, [])
-                        if nasa_radiation is not None and len(forecast_radiation_hours) >= 18:
-                            dedupe_key = (grid_key, target_day.isoformat(), lead_day)
-                            if dedupe_key not in seen_solar_samples:
-                                seen_solar_samples.add(dedupe_key)
-                                forecast_radiation = sum(forecast_radiation_hours) * 0.0036
-                                sunshine_hours = sum(sunshine_by_day.get(target_day, [])) / 3600
-                                solar_samples_by_lead[lead_day].append({
-                                    "run_at": run_at.isoformat(),
-                                    "target_date": target_day.isoformat(),
-                                    "lead_day": lead_day,
-                                    "grid_key": grid_key,
-                                    "station_id": station.station_id,
-                                    "forecast_shortwave_mj_m2": round(forecast_radiation, 2),
-                                    "nasa_power_shortwave_mj_m2": round(nasa_radiation, 2),
-                                    "forecast_sunshine_hours": round(sunshine_hours, 2),
-                                    "matched_radiation_hours": len(forecast_radiation_hours),
-                                })
-
+                    target_day = (
+                        run_at.astimezone(TIMEZONE).date()
+                        + timedelta(days=lead_day)
+                    )
                     pairs: list[tuple[dict[str, Any], Observation]] = []
                     for index, stamp in enumerate(time_values):
                         valid_at = parse_valid_time(stamp)
