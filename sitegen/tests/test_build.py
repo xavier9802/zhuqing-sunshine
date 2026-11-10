@@ -13,8 +13,9 @@ NOW = datetime(2026, 11, 10, 0, 0, tzinfo=UTC)
 
 
 class FakeWeatherClient:
-    def __init__(self, fail: bool = False):
+    def __init__(self, fail: bool = False, hours: int = 5):
         self.fail = fail
+        self.hours = hours
         self.calls = 0
 
     def fetch_metadata(self, model_id: str) -> ModelMetadata:
@@ -35,7 +36,7 @@ class FakeWeatherClient:
         self.calls += 1
         times = [
             (NOW + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M")
-            for i in range(1, 6)
+            for i in range(1, self.hours + 1)
         ]
         return [
             {
@@ -43,10 +44,12 @@ class FakeWeatherClient:
                 "longitude": loc.longitude,
                 "hourly": {
                     "time": times,
-                    "sunshine_duration": [3000, 3000, 3000, 0, 0],
-                    "cloud_cover": [15, 20, 30, 100, 100],
-                    "precipitation": [0, 0, 0, 0, 0],
-                    "temperature_2m": [17, 18, 20, 15, 14],
+                    "sunshine_duration": [
+                        3000 if i <= 3 else 0 for i in range(1, self.hours + 1)
+                    ],
+                    "cloud_cover": [20] * self.hours,
+                    "precipitation": [0] * self.hours,
+                    "temperature_2m": [17] * self.hours,
                 },
             }
             for loc in locations
@@ -145,3 +148,23 @@ def test_placeholder_bootstrap_has_explicit_missing_status(tmp_path: Path) -> No
     )
     assert result["status"] == "initializing"
     assert result["models"][0]["locations_count"] == 0
+
+
+def test_seven_day_totals_are_not_cut_off_by_72_hour_map(tmp_path: Path) -> None:
+    output = tmp_path / "public"
+    result = generate(
+        output,
+        cache=tmp_path / "cache",
+        models=("ecmwf_ifs",),
+        geography=geography_fixture(),
+        client=FakeWeatherClient(hours=168),
+        now=NOW,
+        batch_size=2,
+    )
+    overview = read_json(output / "data" / "overview" / "ecmwf_ifs.json")
+    assert result["status"] == "available"
+    assert len(overview["hourly"]) == 72
+    assert len(overview["daily_sunshine_hours"]) == 7
+    assert len(list((output / "data" / "grid" / "ecmwf_ifs").glob("*.json"))) == 72
+    assert len(read_json(output / "data" / "city" / "ecmwf_ifs" / "chengdu.json")["city"]["hourly"]) == 168
+    assert overview["model"]["forecast_end_at"].startswith("2026-11-17")

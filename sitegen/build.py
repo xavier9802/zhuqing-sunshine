@@ -247,9 +247,12 @@ def produce_model(
                     readings[location.location_key][valid_at] = _provider_row(series, index)
             returned_locations += 1
 
-    grid_times = sorted(
+    # Retain the complete 7-day horizon for daily totals. Only the first
+    # 72 hours require the larger per-grid map slice files.
+    all_grid_times = sorted(
         {stamp for key in grid_keys for stamp in readings[key]}
-    )[:GRID_HOURS]
+    )[:CITY_HOURS]
+    grid_times = all_grid_times[:GRID_HOURS]
     if len(grid_times) < 2:
         raise ValueError(f"{model_id} does not contain at least two future forecast hours")
     if not any(
@@ -260,7 +263,7 @@ def produce_model(
 
     basin_samples: list[GridHour] = []
     grid_dir = output / "data" / "grid" / model_id
-    for valid_at in grid_times:
+    for valid_at in all_grid_times:
         values: list[list[float | int | None]] = []
         for feature in grid_features:
             key = feature["properties"]["location_key"]
@@ -279,22 +282,24 @@ def produce_model(
                     is_interpolated=interpolated,
                 )
             )
-            values.append([
-                round(sunshine / 60, 1) if sunshine is not None else None,
-                round(row["cloud"], 1) if row.get("cloud") is not None else None,
-                round(row["rain"], 2) if row.get("rain") is not None else None,
-                int(interpolated),
-            ])
-        write_json(
-            grid_dir / _timestamp_file(valid_at),
-            {"valid_at": local_iso(valid_at), "values": values},
-        )
+            if valid_at in grid_times:
+                values.append([
+                    round(sunshine / 60, 1) if sunshine is not None else None,
+                    round(row["cloud"], 1) if row.get("cloud") is not None else None,
+                    round(row["rain"], 2) if row.get("rain") is not None else None,
+                    int(interpolated),
+                ])
+        if valid_at in grid_times:
+            write_json(
+                grid_dir / _timestamp_file(valid_at),
+                {"valid_at": local_iso(valid_at), "values": values},
+            )
 
     basin_hourly = aggregate_basin_hours(basin_samples)
-    for hour, stamp in zip(basin_hourly, grid_times, strict=True):
+    for hour, stamp in zip(basin_hourly[:GRID_HOURS], grid_times, strict=True):
         hour["grid_file"] = f"grid/{model_id}/{_timestamp_file(stamp)}"
 
-    basin_window = find_basin_sunshine_window(basin_hourly)
+    basin_window = find_basin_sunshine_window(basin_hourly[:GRID_HOURS])
     if basin_window:
         basin_window["source_model"] = spec.display_name
 
@@ -305,7 +310,7 @@ def produce_model(
         "model_run_at": local_iso(run_at),
         "retrieved_at": local_iso(retrieved_at),
         "available_at": local_iso(metadata.available_at),
-        "forecast_end_at": local_iso(max(grid_times)),
+        "forecast_end_at": local_iso(max(all_grid_times)),
         "spatial_resolution_km": spec.spatial_resolution_km,
         "source": "Open-Meteo ECMWF Single Runs API",
         "source_url": "https://open-meteo.com/en/docs/single-runs-api",
@@ -329,7 +334,7 @@ def produce_model(
         "timezone": "Asia/Shanghai",
         "generated_at": local_iso(retrieved_at),
         "next_sunshine_window": basin_window,
-        "hourly": basin_hourly,
+        "hourly": basin_hourly[:GRID_HOURS],
         "daily_sunshine_hours": aggregate_daily(basin_hourly)[:7],
         "coverage": basin_hourly[0]["sunshine_coverage_pct"],
         "message": "数值天气模型预报；日照时长按盆地网格实际面积加权，不代表地面实况。",
@@ -403,7 +408,7 @@ def produce_model(
         "status": "available",
         "model_run_at": local_iso(run_at),
         "retrieved_at": local_iso(retrieved_at),
-        "forecast_end_at": local_iso(max(grid_times)),
+        "forecast_end_at": local_iso(max(all_grid_times)),
         "locations_count": returned_locations,
         "message": "模型数据已采集",
     }
@@ -499,7 +504,7 @@ def generate(
         message = "部分模型暂不可用，仅展示成功采集的模型。"
     else:
         state = "available"
-        message = "三个 ECMWF 模型预报快照已更新。"
+        message = "所有已配置模型预报快照已更新。"
     status = {
         "status": state,
         "provider": "open-meteo",
