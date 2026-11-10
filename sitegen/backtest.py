@@ -957,7 +957,7 @@ def run_backtest(
         nasa_power_status: dict[str, str] = {}
         for station in stations:
             records: list[Observation] = []
-            diagnostics: dict[str, int] = {}
+            diagnostics: dict[str, Any] = {}
             for year in station.available_years:
                 records.extend(
                     load_station_year(
