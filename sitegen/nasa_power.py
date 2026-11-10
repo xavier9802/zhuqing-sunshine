@@ -42,10 +42,12 @@ def parse_nasa_power_daily_payload(
     latitude: float,
     longitude: float,
 ) -> tuple[str, dict[date, float]]:
-    if payload.get("header", {}).get("fill_value") is not None:
-        fill_value = float(payload["header"]["fill_value"])
-    else:
-        fill_value = -999.0
+    header = payload.get("header")
+    fill_value = (
+        float(header["fill_value"])
+        if isinstance(header, dict) and header.get("fill_value") is not None
+        else -999.0
+    )
 
     properties = payload.get("properties")
     parameters = properties.get("parameter") if isinstance(properties, dict) else None
