@@ -7,24 +7,30 @@
 - [x] Add FastAPI health and data-status endpoints.
 - [x] Add PostGIS Docker Compose service.
 - [x] Add API tests and CI workflow.
-- [ ] Run CI and fix build issues.
+- [x] Pass frontend and API CI.
 
-## M1 — Geography and ingestion
-- [ ] Obtain a traceable Sichuan Basin boundary polygon.
-- [ ] Generate a configurable 0.25-degree grid clipped to the basin.
-- [ ] Add 14 initial city reference points with source metadata.
-- [ ] Validate current Open-Meteo model identifiers and variables.
-- [ ] Implement provider adapter and request batching.
-- [ ] Persist model runs and raw forecast payloads.
-- [ ] Add stale-data and missing-variable handling.
+## M1 — Geography and weather ingestion
+- [x] Identify a traceable initial Sichuan Basin structural-sedimentary boundary source.
+- [x] Implement boundary download, CRS validation and reprojection; refuse missing CRS metadata.
+- [x] Implement a configurable 0.25° grid clipped to the basin with equal-area cell weights.
+- [x] Implement the 14-city GeoNames import with province matching and source attribution.
+- [x] Validate ECMWF model IDs against the current Open-Meteo API specification.
+- [x] Add model metadata polling and retain run initialization / availability timestamps.
+- [x] Add model-specific native temporal schedules and interpolation flags.
+- [x] Add multi-location request batching, retries, timeout and 429 handling.
+- [x] Persist raw payloads, checksums, normalized hourly data and provider-resolved grid coordinates.
+- [x] Add worker tests and CI.
+- [ ] Execute geography import against the live source datasets in the deployment environment.
+- [ ] Execute a real model ingestion after the correct Open-Meteo usage plan and credentials are configured.
+- [ ] Verify the returned city count, grid-cell count, data freshness and model-variable availability.
 
 ## M2 — Sunshine calculation
-- [ ] Normalize sunshine duration to minutes.
-- [ ] Calculate daily sunshine duration.
-- [ ] Detect continuous sunshine windows.
-- [ ] Aggregate grid results using area weights.
+- [ ] Normalize sunshine duration to minutes for product calculations.
+- [ ] Detect continuous sunshine windows with missing-data handling.
+- [ ] Calculate daily sunshine duration and daylight-normalized indicators.
+- [ ] Aggregate grid results using clipped cell area weights.
 - [ ] Compare IFS and AIFS without presenting uncalibrated probabilities.
-- [ ] Add deterministic unit tests.
+- [ ] Add deterministic unit tests for edge cases.
 
 ## M3 — Product experience
 - [ ] Replace map placeholder with MapLibre grid rendering.
