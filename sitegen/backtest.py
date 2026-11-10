@@ -1089,7 +1089,7 @@ def run_backtest(
             "cloud_mae_method": "先计算每个站点日匹配时次的平均绝对误差，再对站点日等权平均；不代表所有逐小时样本等权。",
             "forecast_cycle_note": "跨越不同 ECMWF IFS 版本的结果暂按总体展示，正式校准必须额外分版本回测。",
             "solar_radiation_validation": (
-                "NASA POWER ALLSKY_SFC_SW_DWN daily LST values (MJ/m²/day) are compared with "
+                "NASA POWER AG-community ALLSKY_SFC_SW_DWN daily LST values (MJ/m²/day) are compared with "
                 "the sum of Open-Meteo hourly shortwave_radiation for the corresponding "
                 "Asia/Shanghai local day (W/m² × 0.0036). NASA POWER is a 0.5° satellite/"
                 "reanalysis radiation product, not a direct sunshine-duration station sensor."
