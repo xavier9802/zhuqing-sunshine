@@ -1064,6 +1064,13 @@ def run_backtest(
         "station_count": quality["verified_station_count"],
         "candidate_station_count": len(stations),
         "quality_gates": quality,
+        "nasa_power_source": {
+            "provider": "NASA POWER Daily API",
+            "parameter": "ALLSKY_SFC_SW_DWN",
+            "time_standard": "LST",
+            "spatial_resolution_deg": 0.5,
+            "unit": "MJ/m²/day",
+        },
         "nasa_power_radiation_quality": solar_quality,
         "nasa_power_station_status": nasa_power_status,
         "nasa_power_radiation_by_lead": solar_summaries,
