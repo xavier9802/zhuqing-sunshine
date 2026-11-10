@@ -34,6 +34,7 @@ GHCNH_YEAR_URL = (
     "hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
 )
 FORECAST_MODEL = "ecmwf_ifs"
+FORECAST_MODELS = ("ecmwf_ifs", "ecmwf_ifs025", "ecmwf_aifs025_single")
 DAY_HOURS = range(7, 19)
 MIN_MATCHED_HOURS = 4
 OBSERVATION_TOLERANCE = timedelta(minutes=35)
@@ -760,6 +761,49 @@ def _solar_radiation_quality_gate(samples: list[dict[str, Any]]) -> dict[str, An
         "caveat": (
             "NASA POWER ALLSKY_SFC_SW_DWN 使用约 0.5° × 0.625° 的卫星/再分析太阳辐射网格，"
             "不是地面日照时数仪器观测；该门槛只允许开展辐射误差研究，不代表可直接标定晴天概率。"
+        ),
+    }
+
+
+def _common_solar_model_comparison(
+    samples_by_model: dict[str, dict[int, list[dict[str, Any]]]],
+) -> dict[str, Any]:
+    indexes = {
+        model_id: {
+            (sample["grid_key"], sample["target_date"], sample["lead_day"]): sample
+            for lead_samples in lead_map.values()
+            for sample in lead_samples
+        }
+        for model_id, lead_map in samples_by_model.items()
+    }
+    available_models = [model_id for model_id, index in indexes.items() if index]
+    if len(available_models) < 2:
+        return {
+            "common_case_count": 0,
+            "models": available_models,
+            "by_model": {},
+            "note": "Fewer than two models have comparable NASA POWER samples.",
+        }
+    common_keys = set.intersection(
+        *(set(indexes[model_id]) for model_id in available_models)
+    )
+    by_model: dict[str, Any] = {}
+    for model_id in available_models:
+        by_model[model_id] = {
+            str(lead): _solar_radiation_summary([
+                indexes[model_id][key]
+                for key in common_keys
+                if key[2] == lead
+            ])
+            for lead in (1, 2, 3)
+        }
+    return {
+        "common_case_count": len(common_keys),
+        "models": available_models,
+        "by_model": by_model,
+        "note": (
+            "Only identical NASA POWER spatial point, target date, and lead-time cases "
+            "are compared across models; models with unavailable archived runs are excluded."
         ),
     }
 
