@@ -152,18 +152,51 @@ def parse_station_catalog(content: str) -> list[Station]:
     return sorted(stations.values(), key=lambda item: item.station_id)
 
 
+def parse_synop_sky_cover(report: str) -> float | None:
+    """Decode total cloud amount N from an FM-12 AAXX Nddff group."""
+    text = report.upper()
+    match = re.search(
+        r"\\bAAXX\\s+\\d{5}\\s+\\d{5}\\s+\\d{5}\\s+([0-9])\\d{4}\\b",
+        text,
+    )
+    if not match:
+        return None
+    amount = int(match.group(1))
+    if amount <= 8:
+        return round(amount / 8 * 100, 1)
+    if amount == 9:
+        # N=9 means sky obscured; it is not a clear-sky observation.
+        return 100.0
+    return None
+
+
+def parse_synop_precipitation(report: str) -> bool:
+    """Detect present precipitation from the FM-12 ww group when available."""
+    text = report.upper()
+    if "AAXX" not in text:
+        return False
+    tokens = text.split()
+    for token in tokens[5:]:
+        match = re.fullmatch(r"7(\\d{2})\\d{2}", token)
+        if match:
+            # SYNOP ww 50–99 describes current drizzle/rain/snow or other
+            # precipitation phenomena. 20–49 are not treated as current rain.
+            return int(match.group(1)) >= 50
+    return False
+
+
 def parse_sky_cover(report: str) -> float | None:
     text = report.upper()
     groups = CLOUD_TOKEN.findall(text)
     if groups:
         return max(CLOUD_FRACTIONS['VV' if group.startswith('VV') else group[:3]] for group in groups)
     clear = CLEAR_TOKEN.findall(text)
-    if not clear:
-        return None
-    if "CAVOK" in clear or "NSC" in clear or "NCD" in clear:
-        # CAVOK/NSC do not prove a cloud-free sky; keep them in the bright band.
-        return 26.0
-    return 0.0
+    if clear:
+        if "CAVOK" in clear or "NSC" in clear or "NCD" in clear:
+            # CAVOK/NSC do not prove a cloud-free sky; keep them in the bright band.
+            return 26.0
+        return 0.0
+    return parse_synop_sky_cover(text)
 
 
 def parse_observation(
@@ -184,8 +217,10 @@ def parse_observation(
         report.upper(),
     ):
         visibility_m = 10_000.0
-    precipitation = bool(PRECIP_TOKEN.search(report.upper())) or (
-        precipitation_mm is not None and precipitation_mm >= 0.1
+    precipitation = (
+        bool(PRECIP_TOKEN.search(report.upper()))
+        or parse_synop_precipitation(report)
+        or (precipitation_mm is not None and precipitation_mm >= 0.1)
     )
     return Observation(
         valid_at=valid_at.astimezone(UTC),
