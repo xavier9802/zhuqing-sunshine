@@ -102,7 +102,14 @@ def aggregate_basin_hours(samples: list[GridHour]) -> list[dict[str, Any]]:
         completeness = valid_area / total_area * 100 if total_area else 0.0
         cloud_valid = [row for row in rows if row.cloud_cover_pct is not None and row.area_km2 > 0]
         low_valid = [row for row in rows if row.low_cloud_cover_pct is not None and row.area_km2 > 0]
-        diagnostic_area = sum(row.area_km2 for row in cloud_valid)
+        condition_valid = [
+            row for row in rows
+            if row.cloud_cover_pct is not None
+            and row.low_cloud_cover_pct is not None
+            and row.precipitation_mm is not None
+            and row.area_km2 > 0
+        ]
+        diagnostic_area = sum(row.area_km2 for row in condition_valid)
         low_area = sum(row.area_km2 for row in low_valid)
         rain_valid = [row for row in rows if row.precipitation_mm is not None and row.area_km2 > 0]
         rain_area = sum(row.area_km2 for row in rain_valid)

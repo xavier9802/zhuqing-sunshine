@@ -103,6 +103,10 @@ def bootstrap(output: Path, now: datetime, models: tuple[str, ...]) -> None:
             {"status": "initializing", "model": None, "cities": []},
         )
     write_json(
+        data_dir / "consensus.json",
+        {"status": "initializing", "generated_at": local_iso(now), "model_count": 0, "daily": [], "best_sunny_day": None},
+    )
+    write_json(
         data_dir / "status.json",
         {
             "status": "initializing",
@@ -553,6 +557,8 @@ def generate(
         "models": statuses,
     }
     write_json(output / "data" / "status.json", status)
+    from sitegen.consensus import build_consensus
+    build_consensus(output, statuses, local_iso(datetime.now(UTC)))
     LOG.info(
         "Static data published: %s, %s grid cells, %s cities, %s active model(s)",
         state,

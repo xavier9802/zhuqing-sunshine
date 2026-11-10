@@ -48,8 +48,16 @@ class FakeWeatherClient:
                         3000 if i <= 3 else 0 for i in range(1, self.hours + 1)
                     ],
                     "cloud_cover": [20] * self.hours,
+                    "cloud_cover_low": [15] * self.hours,
+                    "cloud_cover_mid": [10] * self.hours,
+                    "cloud_cover_high": [5] * self.hours,
                     "precipitation": [0] * self.hours,
                     "temperature_2m": [17] * self.hours,
+                    "relative_humidity_2m": [55] * self.hours,
+                    "dew_point_2m": [8] * self.hours,
+                    "shortwave_radiation": [300] * self.hours,
+                    "weather_code": [1] * self.hours,
+                    "is_day": [1] * self.hours,
                 },
             }
             for loc in locations

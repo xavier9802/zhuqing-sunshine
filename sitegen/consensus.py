@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from sitegen.build import write_json
+import json
 
 CONDITION_LABELS = {
     "sunny": "晴",
@@ -34,7 +34,6 @@ def build_consensus(output: Path, model_statuses: list[dict[str, Any]], generate
         path = output / "data" / "overview" / f"{model['model_id']}.json"
         if not path.is_file():
             continue
-        import json
         payload = json.loads(path.read_text(encoding="utf-8"))
         for day in payload.get("daily_sunshine_hours", []):
             if day.get("condition") and day["condition"] != "pending":
@@ -102,5 +101,7 @@ def build_consensus(output: Path, model_statuses: list[dict[str, Any]], generate
             "note": "三个模型均来自 ECMWF 预报体系，模型一致性仅作方向参考，尚未通过地面观测校准。",
         },
     }
-    write_json(output / "data" / "consensus.json", payload)
+    target = output / "data" / "consensus.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False), encoding="utf-8")
     return payload
