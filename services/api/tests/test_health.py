@@ -11,14 +11,14 @@ def test_health_returns_ok() -> None:
     assert response.json()["status"] == "ok"
 
 
-def test_data_status_is_initializing() -> None:
+def test_data_status_is_initializing_when_database_is_not_available() -> None:
     response = client.get("/api/v1/data-status")
     assert response.status_code == 200
     assert response.json()["status"] == "initializing"
     assert response.json()["provider"] == "open-meteo"
 
 
-def test_overview_does_not_invent_forecast_values() -> None:
+def test_overview_does_not_invent_forecast_values_when_database_is_unavailable() -> None:
     response = client.get("/api/v1/overview")
     assert response.status_code == 200
     payload = response.json()
