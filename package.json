@@ -1,0 +1,13 @@
+{
+  "name": "zhuqing-sunshine",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/web"],
+  "scripts": {
+    "dev:web": "npm run dev --workspace @zhuqing/web",
+    "build:web": "npm run build --workspace @zhuqing/web",
+    "lint:web": "npm run lint --workspace @zhuqing/web",
+    "typecheck:web": "npm run typecheck --workspace @zhuqing/web"
+  },
+  "engines": {"node": ">=22"}
+}
