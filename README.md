@@ -33,7 +33,7 @@
 需要 Docker Desktop / Docker Engine、Docker Compose 和 Make。
 
 \`\`\`bash
-git clone https://github.com/xavier9802/zhuqing-sunshine.git
+git clone -b feature/m1-geography-weather-ingestion https://github.com/xavier9802/zhuqing-sunshine.git
 cd zhuqing-sunshine
 make start
 \`\`\`
