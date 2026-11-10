@@ -103,9 +103,9 @@ def test_static_build_writes_model_city_and_compact_time_layers(tmp_path: Path) 
     assert result["models"][0]["locations_count"] == 3
     overview = read_json(output / "data" / "overview" / "ecmwf_ifs.json")
     assert overview["status"] == "available"
-    assert len(overview["hourly"]) == 4  # 00-01 is not entirely future.
+    assert len(overview["hourly"]) == 5  # 00-01 starts exactly at NOW.
     assert overview["hourly"][0]["sunshine_coverage_pct"] == 100
-    assert overview["next_sunshine_window"]["expected_sunshine_minutes"] == 100
+    assert overview["next_sunshine_window"]["expected_sunshine_minutes"] == 150
     first_grid = overview["hourly"][0]["grid_file"]
     layer = read_json(output / "data" / first_grid)
     assert len(layer["values"]) == 2
@@ -114,7 +114,7 @@ def test_static_build_writes_model_city_and_compact_time_layers(tmp_path: Path) 
     assert len(read_json(output / "data" / "geography" / "grid.geojson")["features"]) == 2
     city = read_json(output / "data" / "city" / "ecmwf_ifs" / "chengdu.json")
     assert city["city"]["name"] == "成都"
-    assert len(city["city"]["hourly"]) == 4
+    assert len(city["city"]["hourly"]) == 5
     assert result["models"][0]["model_run_at"] is not None
 
 
