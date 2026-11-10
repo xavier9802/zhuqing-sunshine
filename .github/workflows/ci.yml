@@ -1,0 +1,63 @@
+name: Static MVP CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Build and verify database-free website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sitegen/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install static data generator dependencies
+        run: pip install -r sitegen/requirements.txt
+      - name: Lint generator
+        run: ruff check sitegen
+      - name: Test time windows and snapshot generation
+        run: python -m pytest -q sitegen/tests
+      - name: Generate honest placeholder for offline web build
+        run: python -m sitegen.build --mode placeholder
+      - name: Install web dependencies
+        run: npm install --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck:web
+      - name: Lint
+        run: npm run lint:web
+      - name: Export static Next.js project site
+        env:
+          NEXT_PUBLIC_BASE_PATH: /zhuqing-sunshine
+        run: npm run build:web
+      - name: Verify exported routes and data
+        run: |
+          test -f apps/web/out/index.html
+          test -f apps/web/out/404.html
+          test -f apps/web/out/data/status.json
+          test -f apps/web/out/data/overview/ecmwf_ifs.json
+          test -f apps/web/out/city/chengdu/index.html
+          test -f apps/web/out/city/chongqing/index.html
+          test -f apps/web/out/city/luzhou/index.html
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("apps/web/out")
+          data = json.loads((root/"data/status.json").read_text())
+          assert data["status"] == "initializing"
+          assert len(list((root/"city").glob("*/index.html"))) == 14
+          print("14 city routes and explicit no-live-data state verified")
+          PY
+          du -sh apps/web/out
+
