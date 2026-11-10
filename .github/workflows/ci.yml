@@ -60,3 +60,19 @@ jobs:
           print("14 city routes and explicit no-live-data state verified")
           PY
           du -sh apps/web/out
+
+
+  live-provider-probe:
+    if: github.ref == 'refs/heads/feature/github-pages-static-mvp'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sitegen/requirements.txt
+      - run: pip install -r sitegen/requirements.txt
+      - name: Query one real Chengdu point for each Open-Meteo model
+        run: python -m sitegen.probe
