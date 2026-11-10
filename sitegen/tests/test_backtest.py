@@ -8,6 +8,8 @@ from sitegen.backtest import (
     parse_observation,
     parse_sky_cover,
     parse_sky_cover_code,
+    parse_synop_precipitation,
+    parse_synop_sky_cover,
     parse_sky_cover_from_row,
     parse_station_catalog,
     sample_quality_gate,
@@ -166,3 +168,30 @@ def test_station_selection_includes_all_available_icao_network_stations() -> Non
     assert {station.station_id for station in selected} == {
         "CHI0000ZUUU", "CHI0000ZUTF", "CHI0000ZUCK"
     }
+
+def test_parse_fm12_synop_total_cloud_amount() -> None:
+    # AAXX YYGGiw IIiii iRiXhVV Nddff ...; N is total cloud amount in oktas.
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 00000 10123") == 0
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 43210 10123") == 37.5
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 83210 10123") == 100
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 93210 10123") == 100
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960") is None
+
+
+def test_parse_fm12_synop_present_weather() -> None:
+    assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 70000 80000") is False
+    assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 70000 80000") is False
+    assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 70500 80000") is True
+
+
+def test_parse_observation_uses_fm12_cloud_and_weather_groups() -> None:
+    row = parse_observation(
+        datetime(2025, 6, 15, 8, tzinfo=UTC),
+        "AAXX 15004 57083 42960 83210 10123 20012 30000 40123 50001 60000 70500 80000",
+        None,
+        None,
+    )
+    assert row is not None
+    assert row.cloud_cover_pct == 100
+    assert row.precipitation is True
+
