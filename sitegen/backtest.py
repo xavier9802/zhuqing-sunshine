@@ -196,7 +196,7 @@ def parse_observation(
 
 
 
-def parse_sky_cover_code(value: str | float | int | None) -> float | None:
+def parse_sky_cover_code(value: str | float | None) -> float | None:
     if value is None:
         return None
     text = str(value).strip().upper()
