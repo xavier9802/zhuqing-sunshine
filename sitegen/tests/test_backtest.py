@@ -20,6 +20,7 @@ def test_parse_metar_sky_cover_categories() -> None:
     assert parse_sky_cover("METAR ZUUU 150000Z 02004MPS 9999 FEW020 SCT040 18/10 Q1018") == 43.75
     assert parse_sky_cover("METAR ZUUU 150000Z 02004MPS 9999 BKN015 OVC040 18/10 Q1018") == 100
     assert parse_sky_cover("METAR ZUUU 150000Z 02004MPS 9999 CAVOK 18/10 Q1018") == 26
+    assert parse_sky_cover("METAR ZUUU 150000Z 02004MPS 0200 VV002 18/10 Q1018") == 100
     assert parse_sky_cover("METAR ZUUU 150000Z 02004MPS 18/10 Q1018") is None
 
 

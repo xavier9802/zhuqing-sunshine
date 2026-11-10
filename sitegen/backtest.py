@@ -156,7 +156,7 @@ def parse_sky_cover(report: str) -> float | None:
     text = report.upper()
     groups = CLOUD_TOKEN.findall(text)
     if groups:
-        return max(CLOUD_FRACTIONS[group[:3]] for group in groups)
+        return max(CLOUD_FRACTIONS['VV' if group.startswith('VV') else group[:3]] for group in groups)
     clear = CLEAR_TOKEN.findall(text)
     if not clear:
         return None
