@@ -56,6 +56,7 @@ make start
 \`\`\`bash
 make status   # 查看服务状态
 make logs     # 查看 API / Web / Worker 日志
+make ingest   # 手动立即采集一轮 7 天模型预报
 make down     # 停止服务，保留数据库卷
 make rebuild  # 重新构建并启动
 \`\`\`

@@ -1,4 +1,4 @@
-.PHONY: init up geography worker start status logs down rebuild
+.PHONY: init up geography worker ingest start status logs down rebuild
 
 init:
 	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example"; fi
@@ -11,6 +11,9 @@ geography:
 
 worker:
 	docker compose --profile jobs up --build -d worker
+
+ingest:
+	docker compose run --rm worker ingest-once --days 7
 
 start: init up geography worker
 	@echo ""
