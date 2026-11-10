@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 
 from app.config import Settings
@@ -47,6 +48,7 @@ def run_ingestion(settings: Settings) -> list[dict[str, object]]:
     session_factory = make_session_factory(engine)
     client = OpenMeteoClient(
         base_url=settings.open_meteo_base_url,
+        single_runs_base_url=settings.open_meteo_single_runs_base_url,
         api_key=settings.open_meteo_api_key,
         timeout_seconds=settings.request_timeout_seconds,
         max_attempts=settings.max_attempts,
@@ -67,8 +69,11 @@ def run_ingestion(settings: Settings) -> list[dict[str, object]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="追晴气象数据采集工具")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("import-geography", help="导入 USGS 盆地边界、GeoNames 城市点和 0.25° 网格")
-    ingest_parser = commands.add_parser("ingest-once", help="采集一次 IFS / AIFS 预报")
+    commands.add_parser(
+        "import-geography",
+        help="导入 USGS 盆地边界、GeoNames 城市点和 0.25° 网格",
+    )
+    ingest_parser = commands.add_parser("ingest-once", help="采集指定批次的 ECMWF 单轮预报")
     ingest_parser.add_argument("--days", type=int, default=None)
     args = parser.parse_args()
 
@@ -77,12 +82,7 @@ def main() -> None:
         result = import_geography(settings)
     else:
         if args.days is not None:
-            settings = Settings(
-                **{
-                    **settings.__dict__,
-                    "forecast_days": max(1, min(15, args.days)),
-                }
-            )
+            settings = replace(settings, forecast_days=max(1, min(15, args.days)))
         result = run_ingestion(settings)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))

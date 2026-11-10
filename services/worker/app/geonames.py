@@ -54,7 +54,7 @@ def _download(url: str, client: httpx.Client) -> bytes:
 
 def _admin1_names(text: str) -> dict[str, str]:
     result: dict[str, str] = {}
-    for row in csv.reader(StringIO(text), delimiter="\\t"):
+    for row in csv.reader(StringIO(text), delimiter="\t"):
         if len(row) >= 3 and row[0].startswith("CN."):
             result[row[0].split(".", 1)[1]] = row[2]
     return result
@@ -68,7 +68,7 @@ def parse_city_dump(
     admin1 = _admin1_names(admin1_text)
     rows_by_name: dict[str, list[dict[str, str]]] = {}
 
-    for row in csv.reader(StringIO(dump_text), delimiter="\\t"):
+    for row in csv.reader(StringIO(dump_text), delimiter="\t"):
         if len(row) < len(COLUMNS):
             continue
         record = dict(zip(COLUMNS, row))

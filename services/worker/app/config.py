@@ -11,6 +11,7 @@ class Settings:
     data_dir: Path
     open_meteo_usage: str
     open_meteo_base_url: str
+    open_meteo_single_runs_base_url: str
     open_meteo_api_key: str | None
     forecast_days: int
     grid_spacing_degrees: float
@@ -32,10 +33,19 @@ class Settings:
                 "Do not route a commercial product through the free endpoint."
             )
 
-        default_base = (
+        default_api_base = (
             "https://customer-api.open-meteo.com"
             if usage == "commercial"
             else "https://api.open-meteo.com"
+        )
+        default_single_runs_base = (
+            "https://customer-single-runs-api.open-meteo.com"
+            if usage == "commercial"
+            else "https://single-runs-api.open-meteo.com"
+        )
+        api_base = os.getenv("OPEN_METEO_BASE_URL") or default_api_base
+        single_runs_base = (
+            os.getenv("OPEN_METEO_SINGLE_RUNS_BASE_URL") or default_single_runs_base
         )
         model_ids = tuple(
             item.strip()
@@ -53,7 +63,8 @@ class Settings:
             ),
             data_dir=Path(os.getenv("DATA_DIR", "/app/data")),
             open_meteo_usage=usage,
-            open_meteo_base_url=os.getenv("OPEN_METEO_BASE_URL", default_base).rstrip("/"),
+            open_meteo_base_url=api_base.rstrip("/"),
+            open_meteo_single_runs_base_url=single_runs_base.rstrip("/"),
             open_meteo_api_key=api_key,
             forecast_days=max(1, min(15, int(os.getenv("FORECAST_DAYS", "7")))),
             grid_spacing_degrees=float(os.getenv("GRID_SPACING_DEGREES", "0.25")),

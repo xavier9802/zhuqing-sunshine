@@ -10,7 +10,7 @@
 - API：Python、FastAPI、Pydantic
 - Worker：Python、httpx、SQLAlchemy、Shapely、PyProj
 - Database：PostgreSQL + PostGIS
-- Forecast source：Open-Meteo ECMWF IFS / AIFS
+- Forecast source：Open-Meteo ECMWF IFS / AIFS Single Runs API
 - Geography：USGS basin polygon proxy + GeoNames city points
 - Local development：Docker Compose
 
@@ -41,7 +41,7 @@ docker compose run --rm worker import-geography
 docker compose run --rm worker ingest-once --days 7
 \`\`\`
 
-默认模型：IFS HRES、IFS 0.25°、AIFS Single。每个模型单独请求、单独存档。
+默认模型：IFS HRES、IFS 0.25°、AIFS Single。Worker 先读取模型批次元数据，再通过 Single Runs API 请求确切的模型初始化批次；每个模型单独请求、单独存档。
 
 ## Open-Meteo 使用授权
 
@@ -52,7 +52,7 @@ OPEN_METEO_USAGE=commercial
 OPEN_METEO_API_KEY=your-paid-api-key
 \`\`\`
 
-Worker 会自动切换到 \`customer-api.open-meteo.com\`。不要将免费接口用于商业部署。
+Worker 会自动切换到 customer API hosts。不要将免费接口用于商业部署。
 
 ## 关键数据原则
 

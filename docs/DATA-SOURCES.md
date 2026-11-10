@@ -1,14 +1,15 @@
 # Data sources
 
-## Forecast provider: Open-Meteo ECMWF API
+## Forecast provider: Open-Meteo ECMWF Single Runs API
 
-M1 uses the dedicated ECMWF Forecast API endpoint:
+M1 uses the Single Runs API to retrieve an exact, individually identified model run rather than a seamless forecast stitched from changing runs:
 
-- Forecast: \`https://api.open-meteo.com/v1/ecmwf\`
+- Single-run forecast: \`https://single-runs-api.open-meteo.com/v1/forecast\`
 - Model metadata: \`https://api.open-meteo.com/data/{model_id}/static/meta.json\`
-- Commercial endpoint: \`https://customer-api.open-meteo.com\` with an API key.
+- Commercial single-run endpoint: \`https://customer-single-runs-api.open-meteo.com\`
+- Commercial metadata host: \`https://customer-api.open-meteo.com\`
 
-The worker requests one model per call and stores the model run metadata separately from the forecast retrieval timestamp.
+The worker reads the latest model initialization time from metadata, waits for the provider's 10-minute consistency window after availability, then requests that exact run with the \`run=YYYY-MM-DDTHH:MM\` parameter. Each model is requested separately and stored as a separate forecast run.
 
 ### Model identifiers and native cadence
 
@@ -18,7 +19,7 @@ The worker requests one model per call and stores the model run metadata separat
 | \`ecmwf_ifs025\` | IFS Open Data | 0.25° | 3-hourly to 144 h, then 6-hourly |
 | \`ecmwf_aifs025_single\` | AIFS Single | 0.25° | 6-hourly |
 
-Open-Meteo returns a consistent hourly series by interpolation. The worker therefore stores the model's native step schedule and flags interpolated hourly values. The schedule is not inferred from the output array's one-hour spacing.
+Open-Meteo can interpolate hourly output from coarser native time steps. The worker stores the model's native step schedule and flags interpolated hourly values; the one-hour spacing of the returned time array is not treated as native one-hour model output.
 
 ### Initial hourly variables
 
@@ -41,7 +42,7 @@ The worker reads and stores:
 - \`temporal_resolution_seconds\`
 - \`update_interval_seconds\`
 
-This separates model initialization, provider publication, local retrieval, and forecast valid time.
+This separates model initialization, provider publication, local retrieval and forecast valid time.
 
 ## Basin boundary: USGS Open-File Report 00-047
 
@@ -66,10 +67,10 @@ The city points are gazetteer populated-place reference points, not administrati
 
 ## Licensing and operations
 
-Open-Meteo's free API is restricted to non-commercial use. A product, advertising, subscription or commercial promotional use requires an appropriate paid API plan or separate authorization. For commercial deployments set \`OPEN_METEO_USAGE=commercial\` and provide \`OPEN_METEO_API_KEY\`; the worker then uses the customer API host. Do not use the free endpoint for a commercial deployment.
+Open-Meteo's free API is restricted to non-commercial use. A product, advertising, subscription or commercial promotional use requires an appropriate paid API plan or separate authorization. For commercial deployments set \`OPEN_METEO_USAGE=commercial\` and provide \`OPEN_METEO_API_KEY\`; the worker then uses the customer API hosts. Do not use the free endpoint for a commercial deployment.
 
 Open-Meteo weather data is provided under CC BY 4.0. Displayed data must be attributed and changes indicated. Review current provider terms, API limits and product-specific licensing before public release.
 
 ## Verification data
 
-Historical reanalysis is useful for climatological context but must not be treated as a substitute for ground observations when claiming forecast accuracy. Forecast snapshots are retained by model run and lead time so later verification can compare issued forecasts with suitable station observations.
+Historical reanalysis is useful for climatological context but must not be treated as a substitute for ground observations when claiming forecast accuracy. Forecast snapshots are retained by exact model run and lead time so later verification can compare issued forecasts with suitable station observations.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 from typing import Any
@@ -23,7 +23,8 @@ from app.providers.open_meteo import (
 )
 
 
-OPEN_METEO_ECMWF_URL = "https://open-meteo.com/en/docs/ecmwf-api"
+OPEN_METEO_SINGLE_RUNS_URL = "https://open-meteo.com/en/docs/single-runs-api"
+METADATA_CONSISTENCY_DELAY = timedelta(minutes=10)
 
 
 def _float_at(values: dict[str, Any], key: str, index: int) -> float | None:
@@ -68,7 +69,7 @@ def _persist_batch(
     batch_no: int,
     locations: list[WeatherLocation],
     response: Any,
-    model_run_at: datetime | None,
+    model_run_at: datetime,
     spec,
     request_metadata: dict[str, Any],
 ) -> tuple[datetime | None, datetime | None]:
@@ -96,7 +97,6 @@ def _persist_batch(
         for location, item in zip(locations, items, strict=True):
             hourly = item["hourly"]
             times = hourly.get("time", [])
-            units = item.get("hourly_units", {})
             session.add(
                 ForecastRunLocation(
                     run_id=run.id,
@@ -113,16 +113,12 @@ def _persist_batch(
                 valid_at = parse_valid_time(timestamp)
                 starts.append(valid_at)
                 ends.append(valid_at)
-                lead_hours = (
-                    (valid_at - model_run_at).total_seconds() / 3600
-                    if model_run_at is not None
-                    else None
-                )
-                native_step = (
-                    spec.native_step_seconds(max(0.0, lead_hours))
-                    if lead_hours is not None
-                    else None
-                )
+                lead_hours = (valid_at - model_run_at).total_seconds() / 3600
+                if lead_hours < -0.01:
+                    raise ValueError(
+                        "Single-run API returned a valid time before the requested model run"
+                    )
+                native_step = spec.native_step_seconds(max(0.0, lead_hours))
                 session.add(
                     ForecastHourly(
                         run_id=run.id,
@@ -130,7 +126,7 @@ def _persist_batch(
                         valid_at=valid_at,
                         lead_hours=lead_hours,
                         native_step_seconds=native_step,
-                        is_interpolated=(native_step > 3600) if native_step else None,
+                        is_interpolated=(native_step > 3600),
                         sunshine_duration_seconds=_float_at(hourly, "sunshine_duration", index),
                         shortwave_radiation_wm2=_float_at(hourly, "shortwave_radiation", index),
                         direct_normal_irradiance_wm2=_float_at(hourly, "direct_normal_irradiance", index),
@@ -176,14 +172,27 @@ def ingest_model(
         raise ValueError("No forecast locations found. Run import-geography first.")
 
     metadata = client.fetch_metadata(model_id)
+    if metadata.model_run_at is None:
+        raise ValueError(f"Open-Meteo metadata has no initialization time for {model_id}")
+    if metadata.available_at and (
+        datetime.now(UTC) - metadata.available_at < METADATA_CONSISTENCY_DELAY
+    ):
+        raise RuntimeError(
+            f"{model_id} latest run became available less than 10 minutes ago; "
+            "retry after the provider's consistency window"
+        )
+
     retrieved_at = datetime.now(UTC)
+    run_at = metadata.model_run_at
     request_metadata = {
+        "run": run_at.strftime("%Y-%m-%dT%H:%M"),
         "forecast_days": forecast_days,
         "timezone": "UTC",
         "cell_selection": "land",
         "hourly_variables": list(spec.hourly_variables),
         "models": model_id,
         "dni_method": spec.dni_method,
+        "endpoint": "single-runs-api",
     }
 
     with session_factory() as session:
@@ -191,7 +200,7 @@ def ingest_model(
             provider="open-meteo",
             model_id=model_id,
             model_name=spec.display_name,
-            model_run_at=metadata.model_run_at,
+            model_run_at=run_at,
             retrieved_at=retrieved_at,
             available_at=metadata.available_at,
             modified_at=metadata.modified_at,
@@ -201,7 +210,7 @@ def ingest_model(
             spatial_resolution_km=spec.spatial_resolution_km,
             forecast_days=forecast_days,
             status="running",
-            source_url=OPEN_METEO_ECMWF_URL,
+            source_url=OPEN_METEO_SINGLE_RUNS_URL,
             source_license="CC BY 4.0",
             source_metadata={
                 **metadata.raw,
@@ -228,6 +237,7 @@ def ingest_model(
             response = client.fetch_forecast_batch(
                 model_id=model_id,
                 locations=batch,
+                run_at=run_at,
                 forecast_days=forecast_days,
             )
             batch_start, batch_end = _persist_batch(
@@ -236,7 +246,7 @@ def ingest_model(
                 batch_no=batch_no,
                 locations=batch,
                 response=response,
-                model_run_at=metadata.model_run_at,
+                model_run_at=run_at,
                 spec=spec,
                 request_metadata=request_metadata,
             )
@@ -264,6 +274,7 @@ def ingest_model(
     return {
         "run_id": str(run_id),
         "model_id": model_id,
+        "model_run_at": run_at.isoformat(),
         "status": "complete",
         "locations": len(locations),
         "batches": batch_count,

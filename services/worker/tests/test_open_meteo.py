@@ -5,6 +5,7 @@ import pytest
 
 from app.providers.open_meteo import (
     OpenMeteoClient,
+    WeatherLocation,
     parse_model_metadata,
     parse_valid_time,
 )
@@ -58,6 +59,50 @@ def test_client_retries_rate_limit_and_honours_retry_after() -> None:
     assert result == {"ok": True}
     assert attempts["count"] == 2
     assert delays == [2.0]
+
+
+def test_client_uses_exact_single_run_endpoint_and_model_run() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["host"] = request.url.host
+        captured.update(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={
+                "latitude": 30.5,
+                "longitude": 104.0,
+                "hourly": {"time": ["2026-11-10T00:00"], "sunshine_duration": [1800]},
+            },
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = OpenMeteoClient(
+        "https://api.open-meteo.com",
+        single_runs_base_url="https://single-runs-api.open-meteo.com",
+        http_client=http_client,
+    )
+    try:
+        result = client.fetch_forecast_batch(
+            model_id="ecmwf_ifs025",
+            locations=[
+                WeatherLocation(
+                    location_id=1,
+                    location_key="city:chengdu",
+                    latitude=30.5,
+                    longitude=104.0,
+                )
+            ],
+            run_at=datetime(2026, 11, 10, 0, 0, tzinfo=UTC),
+            forecast_days=7,
+        )
+    finally:
+        http_client.close()
+
+    assert len(result) == 1
+    assert captured["host"] == "single-runs-api.open-meteo.com"
+    assert captured["models"] == "ecmwf_ifs025"
+    assert captured["run"] == "2026-11-10T00:00"
 
 
 def test_client_does_not_retry_bad_request() -> None:

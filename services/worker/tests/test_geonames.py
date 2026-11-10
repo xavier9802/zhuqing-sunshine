@@ -14,11 +14,11 @@ def _row(
         "2026-11-01",
     ]
     assert len(values) == len(COLUMNS)
-    return "\\t".join(values)
+    return "\t".join(values)
 
 
 def test_geonames_city_import_uses_expected_admin_area_and_feature_rank() -> None:
-    dump = "\\n".join([
+    dump = "\n".join([
         _row(1, "Chengdu", "32", "PPLA", 1000000),
         _row(2, "Chengdu", "99", "PPLA", 9000000),
         _row(3, "Chengdu", "32", "PPL", 2000000),
@@ -31,7 +31,7 @@ def test_geonames_city_import_uses_expected_admin_area_and_feature_rank() -> Non
             ])
         ],
     ])
-    admin1 = "CN.32\\tSichuan\\tSichuan\\t1\\nCN.33\\tChongqing\\tChongqing\\t2\\n"
+    admin1 = "CN.32\tSichuan\tSichuan\t1\nCN.33\tChongqing\tChongqing\t2\n"
 
     cities = parse_city_dump(dump, admin1)
 

@@ -40,6 +40,13 @@ def _from_unix(value: Any) -> datetime | None:
         return None
 
 
+def _as_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_model_metadata(model_id: str, payload: dict[str, Any]) -> ModelMetadata:
     return ModelMetadata(
         model_id=model_id,
@@ -51,13 +58,6 @@ def parse_model_metadata(model_id: str, payload: dict[str, Any]) -> ModelMetadat
         update_interval_seconds=_as_int(payload.get("update_interval_seconds")),
         raw=payload,
     )
-
-
-def _as_int(value: Any) -> int | None:
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
 
 
 def parse_valid_time(value: str) -> datetime:
@@ -84,14 +84,21 @@ class OpenMeteoClient:
         max_attempts: int = 5,
         http_client: httpx.Client | None = None,
         sleep=time.sleep,
+        single_runs_base_url: str = "https://single-runs-api.open-meteo.com",
     ) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.metadata_base_url = base_url.rstrip("/")
+        self.single_runs_base_url = single_runs_base_url.rstrip("/")
         self.api_key = api_key
         self.max_attempts = max_attempts
         self._sleep = sleep
         self.client = http_client or httpx.Client(
             timeout=httpx.Timeout(timeout_seconds, connect=10),
-            headers={"User-Agent": "Zhuqing-Sunshine/0.1 (+https://github.com/xavier9802/zhuqing-sunshine)"},
+            headers={
+                "User-Agent": (
+                    "Zhuqing-Sunshine/0.1 "
+                    "(+https://github.com/xavier9802/zhuqing-sunshine)"
+                )
+            },
         )
         self._owns_client = http_client is None
 
@@ -109,9 +116,7 @@ class OpenMeteoClient:
                 if response.status_code in retryable:
                     if attempt == self.max_attempts - 1:
                         response.raise_for_status()
-                    retry_after = response.headers.get("Retry-After")
-                    delay = _retry_delay(retry_after, attempt)
-                    self._sleep(delay)
+                    self._sleep(_retry_delay(response.headers.get("Retry-After"), attempt))
                     continue
 
                 response.raise_for_status()
@@ -133,7 +138,7 @@ class OpenMeteoClient:
 
     def fetch_metadata(self, model_id: str) -> ModelMetadata:
         get_model_spec(model_id)
-        url = f"{self.base_url}/data/{model_id}/static/meta.json"
+        url = f"{self.metadata_base_url}/data/{model_id}/static/meta.json"
         payload = self._get_json(url)
         if not isinstance(payload, dict):
             raise ValueError(f"Invalid metadata response for {model_id}")
@@ -143,13 +148,17 @@ class OpenMeteoClient:
         self,
         model_id: str,
         locations: Iterable[WeatherLocation],
+        run_at: datetime,
         forecast_days: int = 7,
     ) -> list[dict[str, Any]]:
         spec: ModelSpec = get_model_spec(model_id)
         batch = list(locations)
         if not batch:
             return []
+        if run_at.tzinfo is None:
+            raise ValueError("run_at must be timezone-aware UTC")
 
+        run_utc = run_at.astimezone(UTC)
         params: dict[str, Any] = {
             "latitude": ",".join(f"{item.latitude:.6f}" for item in batch),
             "longitude": ",".join(f"{item.longitude:.6f}" for item in batch),
@@ -158,12 +167,14 @@ class OpenMeteoClient:
             "timezone": "UTC",
             "timeformat": "iso8601",
             "models": model_id,
+            "run": run_utc.strftime("%Y-%m-%dT%H:%M"),
             "cell_selection": "land",
         }
         if self.api_key:
             params["apikey"] = self.api_key
 
-        payload = self._get_json(f"{self.base_url}/v1/ecmwf", params=params)
+        url = f"{self.single_runs_base_url}/v1/forecast"
+        payload = self._get_json(url, params=params)
         items = response_items(payload)
         if len(items) != len(batch):
             raise ValueError(

@@ -43,6 +43,17 @@ def _safe_extract(archive_path: Path, target_dir: Path) -> None:
             archive.extract(member, target_dir)
 
 
+def _prj_for(shp_path: Path) -> Path | None:
+    return next(
+        (
+            path for path in shp_path.parent.iterdir()
+            if path.stem.casefold() == shp_path.stem.casefold()
+            and path.suffix.casefold() == ".prj"
+        ),
+        None,
+    )
+
+
 def download_usgs_boundary(data_dir: Path) -> tuple[Any, dict[str, object]]:
     downloads = data_dir / "downloads"
     extract_dir = data_dir / "geography" / "usgs_sedimentary_basins"
@@ -56,42 +67,42 @@ def download_usgs_boundary(data_dir: Path) -> tuple[Any, dict[str, object]]:
 
     _safe_extract(archive_path, extract_dir)
     shp_files = [
-        path for path in extract_dir.rglob("*.shp")
-        if path.stem.casefold() == "sed_basins"
+        path for path in extract_dir.rglob("*")
+        if path.is_file() and path.suffix.casefold() == ".shp"
     ]
-    if len(shp_files) != 1:
+
+    matches: list[tuple[Any, dict[str, object], Path]] = []
+    for shp_path in shp_files:
+        reader = shapefile.Reader(str(shp_path))
+        field_names = [field[0] for field in reader.fields[1:]]
+        name_field = next(
+            (field for field in field_names if field.casefold() == "name"),
+            None,
+        )
+        if name_field is None:
+            reader.close()
+            continue
+
+        for item in reader.iterShapeRecords():
+            attributes = dict(zip(field_names, item.record))
+            if str(attributes.get(name_field, "")).strip().casefold() == "sichuan basin":
+                matches.append(
+                    (shape(item.shape.__geo_interface__), attributes, shp_path)
+                )
+        reader.close()
+
+    if len(matches) != 1:
         raise ValueError(
-            f"Expected one sed_basins.shp in USGS archive; found {len(shp_files)}"
+            f"Expected one Sichuan Basin feature in USGS archive; found {len(matches)}"
         )
 
-    shp_path = shp_files[0]
-    prj_path = shp_path.with_suffix(".prj")
-    if not prj_path.exists():
+    geometry, attributes, shp_path = matches[0]
+    prj_path = _prj_for(shp_path)
+    if prj_path is None:
         raise ValueError(
             "USGS shapefile has no .prj CRS file. Refusing to guess its datum."
         )
 
-    reader = shapefile.Reader(str(shp_path))
-    field_names = [field[0] for field in reader.fields[1:]]
-    name_field = next(
-        (field for field in field_names if field.casefold() == "name"),
-        None,
-    )
-    if name_field is None:
-        raise ValueError(f"USGS shapefile has no NAME field: {field_names}")
-
-    matches = []
-    for item in reader.iterShapeRecords():
-        attributes = dict(zip(field_names, item.record))
-        if str(attributes.get(name_field, "")).strip().casefold() == "sichuan basin":
-            matches.append((shape(item.shape.__geo_interface__), attributes))
-
-    if len(matches) != 1:
-        raise ValueError(
-            f"Expected one Sichuan Basin feature in USGS dataset; found {len(matches)}"
-        )
-
-    geometry, attributes = matches[0]
     source_crs = CRS.from_wkt(prj_path.read_text(encoding="utf-8"))
     target_crs = CRS.from_epsg(4326)
     transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
@@ -155,9 +166,7 @@ def generate_grid_cells(boundary: Any, spacing_degrees: float = 0.25) -> list[Gr
 
     cells: list[GridCell] = []
     for i in range(i_start, i_end + 1):
-        center_lon = (i + 0.5) * spacing_degrees
         for j in range(j_start, j_end + 1):
-            center_lat = (j + 0.5) * spacing_degrees
             cell_polygon = box(
                 i * spacing_degrees,
                 j * spacing_degrees,
@@ -216,7 +225,11 @@ def write_boundary_geojson(
         "properties": metadata,
     }
     output_path.write_text(
-        json.dumps({"type": "FeatureCollection", "features": [feature]}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"type": "FeatureCollection", "features": [feature]},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -239,6 +252,10 @@ def write_grid_geojson(cells: list[GridCell], output_path: Path) -> None:
         for cell in cells
     ]
     output_path.write_text(
-        json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"type": "FeatureCollection", "features": features},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
