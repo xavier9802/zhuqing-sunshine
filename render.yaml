@@ -1,6 +1,6 @@
 # Render Blueprint for the full-stack Zhuqing Sunshine MVP.
 # Singapore region keeps web, API, worker, and database together.
-# Estimated baseline: about US$40/month before additional storage/bandwidth.
+# Estimated baseline: about US$44.50/month with 15 GB Postgres storage, before bandwidth overages.
 services:
   - type: web
     name: zhuqing-sunshine-web
@@ -70,5 +70,6 @@ databases:
     postgresMajorVersion: "16"
     region: singapore
     plan: 0.5c-1g
+    diskSizeGB: 15
     databaseName: zhuqing
     user: zhuqing

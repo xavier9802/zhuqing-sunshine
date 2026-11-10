@@ -8,7 +8,7 @@ This Blueprint provisions the complete MVP stack in Singapore:
 
 ## Cost and plan
 
-The Blueprint uses always-on starter compute for the web, API, and worker, plus a 1 GB managed Postgres plan. Based on Render published compute pricing, the baseline is approximately **US$40/month**: three app services at about $7/month each, plus the 1 GB Postgres at about $19/month. Additional storage and bandwidth can add cost. Confirm the current estimate in the Blueprint review screen before deploying.
+The Blueprint uses always-on starter compute for the web, API, and worker, plus a 1 GB-RAM managed Postgres plan with 15 GB initial storage. Based on Render published compute and storage pricing, the baseline is approximately **US$44.50/month**: three app services at about $7/month each, Postgres compute at about $19/month, and 15 GB storage at about $0.30/GB/month. Bandwidth overages can add cost. Confirm the current estimate in the Blueprint review screen before deploying.
 
 Free Render Postgres is deliberately not used because it expires after 30 days and has no backups. Free web services can spin down while idle and are not suitable for a continuously refreshed public service.
 
