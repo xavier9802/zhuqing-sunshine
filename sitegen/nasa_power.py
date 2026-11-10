@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
-import time
 from datetime import date
+import json
 from pathlib import Path
+import time
 from typing import Any
 
 import httpx
@@ -53,7 +53,7 @@ def parse_nasa_power_daily_payload(
     parameters = properties.get("parameter") if isinstance(properties, dict) else None
     series = parameters.get(NASA_POWER_PARAMETER) if isinstance(parameters, dict) else None
     if not isinstance(series, dict):
-        raise ValueError(f"NASA POWER response is missing {NASA_POWER_PARAMETER}")
+        raise TypeError(f"NASA POWER response is missing {NASA_POWER_PARAMETER}")
 
     values: dict[date, float] = {}
     for raw_day, raw_value in series.items():
@@ -115,7 +115,7 @@ def load_nasa_power_daily_radiation(
             response.raise_for_status()
             payload = response.json()
             if not isinstance(payload, dict):
-                raise ValueError("NASA POWER returned an invalid response")
+                raise TypeError("NASA POWER returned an invalid response")
             messages = payload.get("messages")
             if isinstance(messages, dict) and messages.get("errors"):
                 raise ValueError("NASA POWER returned an error response")
