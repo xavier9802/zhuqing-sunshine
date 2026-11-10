@@ -205,6 +205,12 @@ def parse_sky_cover_code(value: str | float | None) -> float | None:
     # Some GHCNh source streams encode total/opaque/lowest cover as a slash-
     # separated triplet; the first component is total sky cover.
     first = re.split(r"[/, ]+", text)[0]
+    if first in CLOUD_FRACTIONS:
+        return CLOUD_FRACTIONS[first]
+    if first in {"CLR", "SKC"}:
+        return 0.0
+    if first in {"CAVOK", "NSC", "NCD"}:
+        return 26.0
     category = parse_sky_cover(first)
     if category is not None:
         return category
