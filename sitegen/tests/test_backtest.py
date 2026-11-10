@@ -1,17 +1,17 @@
 from datetime import UTC, date, datetime
+from typing import Any
 
 import httpx
-from typing import Any
 
 from shapely.geometry import box
 
 from sitegen.backtest import (
     Station,
     _binary_metrics,
-    _request_with_retry,
     _common_cloud_model_comparison,
     _common_solar_model_comparison,
     _low_cloud_guardrail_sensitivity,
+    _request_with_retry,
     _temporal_holdout_solar_validation,
     parse_observation,
     parse_sky_cover,
