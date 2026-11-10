@@ -118,6 +118,19 @@ def test_parse_ghcnh_overall_and_summed_sky_cover_fields() -> None:
     assert parse_sky_cover_from_row({"sky_cover_layer_1": "FEW"}) == 18.75
 
 
+def test_parse_legacy_ghcnh_sky_cover_1_to_3_fields() -> None:
+    assert parse_sky_cover_from_row({
+        "sky_cover_1": "0",
+        "sky_cover_2": "4",
+        "sky_cover_3": "99",
+    }) == 50
+    assert parse_sky_cover_from_row({
+        "sky_cover_1": "2",
+        "sky_cover_2": "8",
+    }) == 100
+    assert parse_sky_cover_from_row({"sky_cover_1": "99"}) is None
+
+
 def test_parse_observation_can_use_native_ghcnh_cloud_field_without_metar() -> None:
     row = parse_observation(
         datetime(2025, 6, 15, 8, tzinfo=UTC),
