@@ -25,19 +25,19 @@
 - [ ] Verify the returned city count, grid-cell count, data freshness and model-variable availability.
 
 ## M2 — Sunshine calculation
-- [ ] Normalize sunshine duration to minutes for product calculations.
-- [ ] Detect continuous sunshine windows with missing-data handling.
-- [ ] Calculate daily sunshine duration and daylight-normalized indicators.
-- [ ] Aggregate grid results using clipped cell area weights.
-- [ ] Compare IFS and AIFS without presenting uncalibrated probabilities.
-- [ ] Add deterministic unit tests for edge cases.
+- [x] Normalize sunshine duration to minutes for product calculations.
+- [x] Detect continuous sunshine windows with missing-data handling.
+- [x] Calculate daily sunshine duration and daylight-normalized indicators.
+- [x] Aggregate grid results using clipped cell area weights.
+- [x] Expose IFS and AIFS as separately selectable model runs; do not present uncalibrated probabilities.
+- [x] Add deterministic unit tests for edge cases.
 
 ## M3 — Product experience
-- [ ] Replace map placeholder with MapLibre grid rendering.
-- [ ] Add 72-hour timeline and forecast layer switching.
-- [ ] Add 7-day daily sunshine trend.
-- [ ] Add city detail routes.
-- [ ] Add source/model freshness indicators.
+- [x] Replace map placeholder with MapLibre grid rendering.
+- [x] Add 24-hour timeline and forecast model switching.
+- [x] Add 7-day daily sunshine trend.
+- [x] Add city detail routes.
+- [x] Add source/model freshness indicators.
 
 ## M4 — Verification
 - [ ] Archive forecast snapshots by run and lead time.

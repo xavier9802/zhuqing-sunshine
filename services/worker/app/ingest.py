@@ -189,6 +189,30 @@ def ingest_model(
 
     retrieved_at = datetime.now(UTC)
     run_at = metadata.model_run_at
+    with session_factory() as session:
+        existing_run = session.scalar(
+            select(ForecastRun)
+            .where(
+                ForecastRun.model_id == model_id,
+                ForecastRun.model_run_at == run_at,
+                ForecastRun.status == "complete",
+            )
+            .order_by(ForecastRun.retrieved_at.desc())
+            .limit(1)
+        )
+        if existing_run is not None:
+            return {
+                "run_id": str(existing_run.id),
+                "model_id": model_id,
+                "model_run_at": run_at.isoformat(),
+                "status": "skipped",
+                "reason": "this exact model initialization has already been ingested",
+                "locations": len(locations),
+                "batches": 0,
+                "forecast_start_at": existing_run.forecast_start_at.isoformat() if existing_run.forecast_start_at else None,
+                "forecast_end_at": existing_run.forecast_end_at.isoformat() if existing_run.forecast_end_at else None,
+            }
+
     request_metadata = {
         "run": run_at.strftime("%Y-%m-%dT%H:%M"),
         "forecast_days": forecast_days,

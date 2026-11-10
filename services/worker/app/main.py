@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
+from datetime import UTC, datetime
 from dataclasses import replace
 
 from app.config import Settings
@@ -66,6 +68,32 @@ def run_ingestion(settings: Settings) -> list[dict[str, object]]:
         engine.dispose()
 
 
+def run_ingestion_loop(settings: Settings, interval_minutes: int) -> None:
+    interval_seconds = max(15, interval_minutes * 60)
+    print(json.dumps({
+        "event": "ingestion_loop_started",
+        "interval_minutes": interval_minutes,
+        "models": list(settings.model_ids),
+    }, ensure_ascii=False), flush=True)
+    while True:
+        started_at = datetime.now(UTC)
+        try:
+            result = run_ingestion(settings)
+            print(json.dumps({
+                "event": "ingestion_cycle_complete",
+                "at": datetime.now(UTC).isoformat(),
+                "results": result,
+            }, ensure_ascii=False), flush=True)
+        except Exception as exc:
+            print(json.dumps({
+                "event": "ingestion_cycle_failed",
+                "at": datetime.now(UTC).isoformat(),
+                "error": str(exc)[:4000],
+            }, ensure_ascii=False), flush=True)
+        elapsed = (datetime.now(UTC) - started_at).total_seconds()
+        time.sleep(max(15, interval_seconds - elapsed))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="追晴气象数据采集工具")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -75,16 +103,22 @@ def main() -> None:
     )
     ingest_parser = commands.add_parser("ingest-once", help="采集指定批次的 ECMWF 单轮预报")
     ingest_parser.add_argument("--days", type=int, default=None)
+    loop_parser = commands.add_parser("ingest-loop", help="按固定间隔持续采集新模型批次")
+    loop_parser.add_argument("--interval-minutes", type=int, default=60)
     args = parser.parse_args()
 
     settings = Settings.from_env()
     if args.command == "import-geography":
         result = import_geography(settings)
-    else:
-        if args.days is not None:
-            settings = replace(settings, forecast_days=max(1, min(15, args.days)))
-        result = run_ingestion(settings)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    if args.command == "ingest-loop":
+        run_ingestion_loop(settings, args.interval_minutes)
+        return
 
+    if args.days is not None:
+        settings = replace(settings, forecast_days=max(1, min(15, args.days)))
+    result = run_ingestion(settings)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
