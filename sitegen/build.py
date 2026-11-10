@@ -473,7 +473,7 @@ def generate(
                 )
             except Exception as exc:
                 # Per-model isolation: failure cannot publish partial grid results.
-                LOG.exception("Forecast ingest failed for %s: %s", model_id, exc)
+                LOG.exception("Forecast ingest failed for %s", model_id)
                 shutil.rmtree(output / "data" / "grid" / model_id, ignore_errors=True)
                 shutil.rmtree(output / "data" / "city" / model_id, ignore_errors=True)
                 write_json(
