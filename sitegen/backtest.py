@@ -710,14 +710,14 @@ def _solar_radiation_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     if not samples:
         return {
             "grid_days": 0,
-            "grid_count": 0,
+            "spatial_point_count": 0,
             "mae_mj_m2": None,
             "rmse_mj_m2": None,
             "bias_mj_m2": None,
         }
     return {
         "grid_days": len(samples),
-        "grid_count": len({sample["grid_key"] for sample in samples}),
+        "spatial_point_count": len({sample["grid_key"] for sample in samples}),
         "mae_mj_m2": round(sum(absolute_errors) / len(absolute_errors), 2),
         "rmse_mj_m2": round((sum(value * value for value in errors) / len(errors)) ** 0.5, 2),
         "bias_mj_m2": round(sum(errors) / len(errors), 2),
@@ -731,7 +731,7 @@ def _solar_radiation_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _solar_radiation_quality_gate(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    grid_count = len({sample["grid_key"] for sample in samples})
+    spatial_point_count = len({sample["grid_key"] for sample in samples})
     lead_counts = {
         str(lead): sum(sample["lead_day"] == lead for sample in samples)
         for lead in (1, 2, 3)
@@ -746,7 +746,7 @@ def _solar_radiation_quality_gate(samples: list[dict[str, Any]]) -> dict[str, An
     }
     checks = {
         "at_least_200_grid_days": len(samples) >= 200,
-        "at_least_4_unique_grid_cells": grid_count >= 4,
+        "at_least_4_spatial_points": spatial_point_count >= 4,
         "at_least_50_days_per_lead": all(count >= 50 for count in lead_counts.values()),
         "four_seasons_represented": len(seasons) == 4,
     }
@@ -754,7 +754,7 @@ def _solar_radiation_quality_gate(samples: list[dict[str, Any]]) -> dict[str, An
         "sufficient_for_radiation_research_review": bool(samples) and all(checks.values()),
         "calibrated_sunshine_probability": False,
         "checks": checks,
-        "unique_grid_cells": grid_count,
+        "unique_spatial_points": spatial_point_count,
         "lead_grid_days": lead_counts,
         "represented_seasons": sorted(seasons),
         "caveat": (
@@ -1068,7 +1068,7 @@ def run_backtest(
             "provider": "NASA POWER Daily API",
             "parameter": "ALLSKY_SFC_SW_DWN",
             "time_standard": "LST",
-            "spatial_resolution_deg": 0.5,
+            "spatial_resolution_deg": {"latitude": 0.5, "longitude": 0.625},
             "unit": "MJ/m²/day",
         },
         "nasa_power_radiation_quality": solar_quality,
