@@ -47,3 +47,22 @@ def test_parse_nasa_power_daily_radiation_fallback_grid_key() -> None:
 
     assert grid_key == "30.25,104.25"
     assert values[date(2024, 6, 1)] == 18.0
+
+def test_parse_nasa_power_converts_kwh_to_mj() -> None:
+    payload = {
+        "properties": {
+            "parameter": {
+                "ALLSKY_SFC_SW_DWN": {"20240601": 3.5}
+            }
+        },
+        "parameters": {
+            "ALLSKY_SFC_SW_DWN": {"units": "kWh/m^2/day"}
+        },
+    }
+
+    _, values = parse_nasa_power_daily_payload(
+        payload, latitude=30.32, longitude=104.45
+    )
+
+    assert values[date(2024, 6, 1)] == 12.6
+\n
