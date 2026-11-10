@@ -45,7 +45,7 @@ def test_parse_nasa_power_daily_radiation_fallback_grid_key() -> None:
         payload, latitude=30.32, longitude=104.45
     )
 
-    assert grid_key == "30.25,104.25"
+    assert grid_key == "30.320,104.450"
     assert values[date(2024, 6, 1)] == 18.0
 
 def test_parse_nasa_power_converts_kwh_to_mj() -> None:
