@@ -166,6 +166,27 @@ def parse_sky_cover(report: str) -> float | None:
     return 0.0
 
 
+def parse_synop_sky_cover(report: str) -> float | None:
+    """Decode total cloud amount N from an FM-12 SYNOP AAXX report.
+
+    In the land SYNOP section 1, N is the first digit of the Nddff group.
+    WMO code table 2700 encodes 0-8 oktas; 9 means the sky is obscured.
+    """
+    tokens = report.upper().replace("=", " ").split()
+    try:
+        marker = tokens.index("AAXX")
+    except ValueError:
+        return None
+    # AAXX YYGGiw IIiii iRiXhVV Nddff ...
+    group_index = marker + 4
+    if group_index >= len(tokens):
+        return None
+    group = tokens[group_index]
+    if not re.fullmatch(r"[0-9/]{5}", group):
+        return None
+    return parse_sky_cover_code(group[0])
+
+
 def parse_observation(
     valid_at: datetime,
     report: str,
@@ -174,6 +195,8 @@ def parse_observation(
     sky_cover_pct: float | None = None,
 ) -> Observation | None:
     cloud = parse_sky_cover(report)
+    if cloud is None:
+        cloud = parse_synop_sky_cover(report)
     if cloud is None:
         cloud = sky_cover_pct
     if cloud is None:
