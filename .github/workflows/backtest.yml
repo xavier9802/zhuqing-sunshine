@@ -2,7 +2,7 @@ name: Historical forecast verification
 
 on:
   push:
-    branches: [main, feature/forecast-backtesting]
+    branches: [main, feature/forecast-backtesting, feature/v1-2-synop-verification]
     paths:
       - "sitegen/backtest.py"
       - "sitegen/tests/test_backtest.py"
@@ -41,15 +41,12 @@ jobs:
           python -m pytest -q sitegen/tests
       - name: Run historical verification
         run: |
-          # Scheduled checks sample more runs; pushes use a quicker audit.
-          RUNS=12
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            RUNS=24
-          fi
+          # Use the same 24-run sample for branch pushes and scheduled audits.
+          RUNS=24
           python -m sitegen.backtest \
             --start-date 2024-04-15 \
             --max-runs "$RUNS" \
-            --max-stations 8 \
+            --max-stations 12 \
             --output artifacts/forecast-backtest.json
       - name: Upload verification report
         if: always()
