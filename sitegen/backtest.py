@@ -481,6 +481,14 @@ def load_station_year(
         report = _field(row, "REM", "REMARKS") or ""
         if report and diagnostics is not None:
             diagnostics["rows_with_raw_report"] = diagnostics.get("rows_with_raw_report", 0) + 1
+            if parse_synop_sky_cover(report) is not None:
+                diagnostics["rows_with_fm12_synop_cloud"] = (
+                    diagnostics.get("rows_with_fm12_synop_cloud", 0) + 1
+                )
+            if parse_synop_precipitation(report):
+                diagnostics["rows_with_fm12_synop_precipitation"] = (
+                    diagnostics.get("rows_with_fm12_synop_precipitation", 0) + 1
+                )
         sky_cover = parse_sky_cover_from_row(row)
         if sky_cover is not None and diagnostics is not None:
             diagnostics["rows_with_sky_cover_fields"] = diagnostics.get("rows_with_sky_cover_fields", 0) + 1
@@ -932,7 +940,7 @@ def main() -> None:
     parser.add_argument("--start-date", type=date.fromisoformat, default=date(2024, 4, 15))
     parser.add_argument("--end-date", type=date.fromisoformat, default=datetime.now(UTC).date() - timedelta(days=14))
     parser.add_argument("--max-runs", type=int, default=16)
-    parser.add_argument("--max-stations", type=int, default=8)
+    parser.add_argument("--max-stations", type=int, default=12)
     parser.add_argument("--cache-dir", type=Path, default=Path(".cache/zhuqing"))
     parser.add_argument("--output", type=Path, default=Path("artifacts/forecast-backtest.json"))
     args = parser.parse_args()
