@@ -82,7 +82,7 @@ def _latest_run(session: Session, model_id: str) -> ForecastRun | None:
 
 
 def _grid_samples(session: Session, run_id: UUID, hours: int = 168) -> list[GridHour]:
-    now = datetime.now(UTC) + timedelta(hours=1)
+    now = datetime.now(UTC)
     rows = session.execute(
         select(
             ForecastHourly.valid_at,
@@ -97,7 +97,7 @@ def _grid_samples(session: Session, run_id: UUID, hours: int = 168) -> list[Grid
             ForecastHourly.run_id == run_id,
             ForecastLocation.location_type == "grid",
             ForecastLocation.is_active.is_(True),
-            ForecastHourly.valid_at >= now,
+            ForecastHourly.valid_at >= now + timedelta(hours=1),
             ForecastHourly.valid_at <= now + timedelta(hours=hours),
         )
         .order_by(ForecastHourly.valid_at)
@@ -130,7 +130,7 @@ def _city_samples(session: Session, run_id: UUID, slug: str | None = None) -> li
         .join(ForecastHourly, ForecastHourly.location_id == ForecastLocation.id)
         .where(
             ForecastHourly.run_id == run_id,
-            ForecastHourly.valid_at >= now,
+            ForecastHourly.valid_at >= now + timedelta(hours=1),
             ForecastHourly.valid_at <= now + timedelta(days=7),
             ForecastLocation.location_type == "city",
             ForecastLocation.is_active.is_(True),
