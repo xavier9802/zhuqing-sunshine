@@ -68,11 +68,11 @@ def test_city_window_uses_two_consecutive_effective_sunshine_hours() -> None:
 
 
 def test_daily_summary_is_local_calendar_day() -> None:
-    t = datetime(2026, 11, 10, 15, tzinfo=UTC)
+    t = datetime(2026, 11, 10, 13, tzinfo=UTC)
     rows = aggregate_basin_hours([
         GridHour(t, 100, 3600, 20, 0, False),
         GridHour(t + timedelta(hours=1), 100, 1800, 30, 0, False),
     ])
     daily = aggregate_daily(rows)
     assert daily[0]["date"] == "2026-11-10"
-    assert daily[0]["sunshine_hours"] == 0.9
+    assert daily[0]["sunshine_hours"] == 1.5

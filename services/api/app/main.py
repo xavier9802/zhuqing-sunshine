@@ -127,6 +127,8 @@ def _city_samples(session: Session, run_id: UUID, slug: str | None = None) -> li
         .join(ForecastHourly, ForecastHourly.location_id == ForecastLocation.id)
         .where(
             ForecastHourly.run_id == run_id,
+            ForecastHourly.valid_at >= now - timedelta(hours=1),
+            ForecastHourly.valid_at <= now + timedelta(days=7),
             ForecastLocation.location_type == "city",
             ForecastLocation.is_active.is_(True),
         )
@@ -297,8 +299,19 @@ def overview(
             ),
             "model": _run_payload(run),
         }
-    except SQLAlchemyError as exc:
-        raise HTTPException(status_code=503, detail="暂时无法读取预报数据") from exc
+    except SQLAlchemyError:
+        return {
+            "status": "initializing",
+            "region": "sichuan-basin",
+            "timezone": "Asia/Shanghai",
+            "generated_at": local_iso(datetime.now(UTC)),
+            "next_sunshine_window": None,
+            "hourly": [],
+            "daily_sunshine_hours": [],
+            "coverage": None,
+            "message": "数据库暂不可用，尚不能读取真实预测。",
+            "model": None,
+        }
 
 
 @app.get("/api/v1/cities", tags=["forecast"])
@@ -381,7 +394,33 @@ def grid(
     try:
         run = _latest_run(session, model_id)
         if run is None:
-            return {"status": "initializing", "model": None, "valid_at": None, "geojson": {"type": "FeatureCollection", "features": []}}
+            return {
+                "status": "initializing",
+                "model": None,
+                "valid_at": None,
+                "geojson": {"type": "FeatureCollection", "features": []},
+            }
+
+        target = valid_at
+        if target is None:
+            target = session.scalar(
+                select(func.min(ForecastHourly.valid_at)).where(
+                    ForecastHourly.run_id == run.id,
+                    ForecastHourly.valid_at >= datetime.now(UTC),
+                )
+            )
+            if target is None:
+                target = session.scalar(
+                    select(func.min(ForecastHourly.valid_at)).where(ForecastHourly.run_id == run.id)
+                )
+        if target is None:
+            return {
+                "status": "degraded",
+                "model": _run_payload(run),
+                "valid_at": None,
+                "geojson": {"type": "FeatureCollection", "features": []},
+            }
+        target = target.astimezone(UTC) if target.tzinfo else target.replace(tzinfo=UTC)
         statement = (
             select(
                 ForecastLocation.id,
@@ -392,56 +431,39 @@ def grid(
                 ForecastHourly.cloud_cover_pct,
                 ForecastHourly.precipitation_mm,
                 ForecastHourly.is_interpolated,
-                func.ST_AsGeoJSON(ForecastLocation.cell_geometry),
+                func.ST_AsGeoJSON(ForecastLocation.cell_geometry).label("geometry_json"),
             )
             .join(ForecastHourly, ForecastHourly.location_id == ForecastLocation.id)
             .where(
                 ForecastHourly.run_id == run.id,
+                ForecastHourly.valid_at == target,
                 ForecastLocation.location_type == "grid",
                 ForecastLocation.is_active.is_(True),
                 ForecastLocation.cell_geometry.is_not(None),
             )
         )
-        if valid_at:
-            target = valid_at.astimezone(UTC) if valid_at.tzinfo else valid_at.replace(tzinfo=UTC)
-            statement = statement.where(ForecastHourly.valid_at == target)
-        else:
-            statement = statement.where(ForecastHourly.valid_at >= datetime.now(UTC)).order_by(ForecastHourly.valid_at).limit(1)
         rows = session.execute(statement).all()
-        if not rows and valid_at is None:
-            first_time = session.scalar(
-                select(func.min(ForecastHourly.valid_at)).where(ForecastHourly.run_id == run.id)
-            )
-            if first_time:
-                statement = statement.where(ForecastHourly.valid_at == first_time)
-                rows = session.execute(statement).all()
-
         features = []
-        selected_time = None
         for row in rows:
-            geometry_json = row[-1]
-            if not geometry_json:
+            if not row.geometry_json:
                 continue
-            import json
-            seconds = row[5]
-            selected_time = row[3]
             features.append({
                 "type": "Feature",
-                "id": row[0],
-                "geometry": json.loads(geometry_json),
+                "id": row.id,
+                "geometry": json.loads(row.geometry_json),
                 "properties": {
-                    "location_key": row[1],
-                    "area_km2": row[2],
-                    "sunshine_minutes": round(float(seconds) / 60, 1) if seconds is not None else None,
-                    "cloud_cover_pct": row[6],
-                    "precipitation_mm": row[7],
-                    "is_interpolated": bool(row[8]),
+                    "location_key": row.location_key,
+                    "area_km2": row.area_km2,
+                    "sunshine_minutes": round(float(row.sunshine_duration_seconds) / 60, 1) if row.sunshine_duration_seconds is not None else None,
+                    "cloud_cover_pct": row.cloud_cover_pct,
+                    "precipitation_mm": row.precipitation_mm,
+                    "is_interpolated": bool(row.is_interpolated),
                 },
             })
         return {
             "status": "available" if features else "degraded",
             "model": _run_payload(run),
-            "valid_at": local_iso(selected_time),
+            "valid_at": local_iso(target),
             "geojson": {"type": "FeatureCollection", "features": features},
         }
     except SQLAlchemyError as exc:
