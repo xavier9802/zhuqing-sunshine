@@ -172,7 +172,7 @@ def test_station_selection_includes_all_available_icao_network_stations() -> Non
 def test_parse_fm12_synop_total_cloud_amount() -> None:
     # AAXX YYGGiw IIiii iRiXhVV Nddff ...; N is total cloud amount in oktas.
     assert parse_synop_sky_cover("AAXX 15004 57083 42960 00000 10123") == 0
-    assert parse_synop_sky_cover("AAXX 15004 57083 42960 43210 10123") == 37.5
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 43210 10123") == 50
     assert parse_synop_sky_cover("AAXX 15004 57083 42960 83210 10123") == 100
     assert parse_synop_sky_cover("AAXX 15004 57083 42960 93210 10123") == 100
     assert parse_synop_sky_cover("AAXX 15004 57083 42960") is None
@@ -187,7 +187,7 @@ def test_parse_fm12_synop_present_weather() -> None:
 def test_parse_observation_uses_fm12_cloud_and_weather_groups() -> None:
     row = parse_observation(
         datetime(2025, 6, 15, 8, tzinfo=UTC),
-        "AAXX 15004 57083 42960 83210 10123 20012 30000 40123 50001 60000 70500 80000",
+        "AAXX 15004 57083 42960 83210 10123 20012 30000 40123 50001 60000 75000 80000",
         None,
         None,
     )
