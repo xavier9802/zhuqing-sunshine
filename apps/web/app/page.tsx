@@ -149,7 +149,7 @@ export default function Home() {
 
       <section className="metrics">
         <article className="metric featured"><label><Sun size={15}/> 下一次盆地放晴窗口</label><strong className="value pending">{windowLabel(overview?.next_sunshine_window)}</strong><small className="metric-note">{overview?.next_sunshine_window ? "预计连续有效日照约 " + (overview.next_sunshine_window.expected_sunshine_minutes / 60).toFixed(1) + " 小时" : overview?.status === "available" ? "当前预报周期内未达到放晴判定条件" : "完成真实模型数据采集后生成"}</small></article>
-        <article className="metric"><label><Waves size={15}/> 当前盆地平均日照</label><strong>{selectedHour?.sunshine_minutes == null ? "—" : (selectedHour.sunshine_minutes / 60).toFixed(1)} <small>小时/小时</small></strong><small className="metric-note">按网格有效面积加权</small></article>
+        <article className="metric"><label><Waves size={15}/> 所选时次平均日照</label><strong>{selectedHour?.sunshine_minutes == null ? "—" : selectedHour.sunshine_minutes.toFixed(0)} <small>分钟/小时</small></strong><small className="metric-note">按网格有效面积加权</small></article>
         <article className="metric"><label><CloudSun size={15}/> 有效日照覆盖</label><strong>{selectedHour?.sunshine_coverage_pct == null ? "—" : selectedHour.sunshine_coverage_pct.toFixed(0)} <small>%</small></strong><small className="metric-note">每小时有效日照不少于 30 分钟的区域占比</small></article>
         <article className="metric"><label><Compass size={15}/> 数据完整度</label><strong>{selectedHour?.data_completeness_pct == null ? "—" : selectedHour.data_completeness_pct.toFixed(0)} <small>%</small></strong><small className="metric-note">本时次有有效日照数据的网格面积</small></article>
       </section>
@@ -173,7 +173,7 @@ export default function Home() {
           <div className="data-source"><span className="dot"/> Open-Meteo · {overview?.model?.model_name || "等待模型批次"}</div>
         </div>
         <div className="hour-strip">
-          {(overview?.hourly || []).slice(0, 24).map((hour, index) => (
+          {(overview?.hourly || []).slice(0, 72).map((hour, index) => (
             <button type="button" key={hour.valid_at} className={"hour-chip " + (selectedHour?.valid_at === hour.valid_at ? "selected" : "")} onClick={() => setSelectedTime(hour.valid_at)}>
               <b>{index === 0 ? "最近时次" : hourLabel(hour.valid_at)}</b>
               <span>日照覆盖</span>

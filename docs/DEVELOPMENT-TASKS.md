@@ -34,7 +34,7 @@
 
 ## M3 — Product experience
 - [x] Replace map placeholder with MapLibre grid rendering.
-- [x] Add 24-hour timeline and forecast model switching.
+- [x] Add 72-hour timeline and forecast model switching.
 - [x] Add 7-day daily sunshine trend.
 - [x] Add city detail routes.
 - [x] Add source/model freshness indicators.
