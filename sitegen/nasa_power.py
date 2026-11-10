@@ -112,8 +112,11 @@ def load_nasa_power_daily_radiation(
                 continue
             response.raise_for_status()
             payload = response.json()
-            if not isinstance(payload, dict) or payload.get("messages", {}).get("errors"):
-                raise ValueError("NASA POWER returned an invalid or error response")
+            if not isinstance(payload, dict):
+                raise ValueError("NASA POWER returned an invalid response")
+            messages = payload.get("messages")
+            if isinstance(messages, dict) and messages.get("errors"):
+                raise ValueError("NASA POWER returned an error response")
             grid_key, values = parse_nasa_power_daily_payload(
                 payload, latitude=latitude, longitude=longitude
             )
