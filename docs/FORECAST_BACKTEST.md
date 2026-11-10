@@ -18,6 +18,7 @@ Measure the ECMWF IFS HRES forecast's ability to predict daytime clear/bright sk
 - Match each forecast valid time to the nearest NOAA report within 35 minutes.
 - Require at least four matched daylight hours for a station-day. Missing observations are excluded, never treated as clear or dry.
 - Use NOAA raw report remarks containing a parseable METAR/SYNOP cloud layer group. Cloud categories are converted to approximate oktas midpoints: FEW 18.75%, SCT 43.75%, BKN 75%, OVC/VV 100%; CLR/SKC 0%. CAVOK/NSC/NCD are conservatively set to 26% because they do not prove a completely cloud-free sky.
+- Decode native FM-12 AAXX reports when present: total cloud amount `N` in the `Nddff` group is converted from oktas to percent; the `7wwW1W2` group is used to flag present precipitation (`ww` 50–99). These decoded fields are recorded in station diagnostics so parser coverage can be audited.
 
 ## Metrics
 
