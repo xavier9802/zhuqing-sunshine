@@ -1,15 +1,22 @@
 from datetime import UTC, date, datetime
+from typing import Any
 
 from shapely.geometry import box
 
 from sitegen.backtest import (
     Station,
     _binary_metrics,
+    _common_cloud_model_comparison,
+    _common_solar_model_comparison,
+    _low_cloud_guardrail_sensitivity,
+    _temporal_holdout_solar_validation,
     parse_observation,
     parse_sky_cover,
     parse_sky_cover_code,
     parse_sky_cover_from_row,
     parse_station_catalog,
+    parse_synop_precipitation,
+    parse_synop_sky_cover,
     sample_quality_gate,
     sample_run_dates,
     select_stations,
@@ -114,6 +121,19 @@ def test_parse_ghcnh_overall_and_summed_sky_cover_fields() -> None:
     assert parse_sky_cover_from_row({"sky_cover_layer_1": "FEW"}) == 18.75
 
 
+def test_parse_legacy_ghcnh_sky_cover_1_to_3_fields() -> None:
+    assert parse_sky_cover_from_row({
+        "sky_cover_1": "0",
+        "sky_cover_2": "4",
+        "sky_cover_3": "99",
+    }) == 50
+    assert parse_sky_cover_from_row({
+        "sky_cover_1": "2",
+        "sky_cover_2": "8",
+    }) == 100
+    assert parse_sky_cover_from_row({"sky_cover_1": "99"}) is None
+
+
 def test_parse_observation_can_use_native_ghcnh_cloud_field_without_metar() -> None:
     row = parse_observation(
         datetime(2025, 6, 15, 8, tzinfo=UTC),
@@ -166,3 +186,125 @@ def test_station_selection_includes_all_available_icao_network_stations() -> Non
     assert {station.station_id for station in selected} == {
         "CHI0000ZUUU", "CHI0000ZUTF", "CHI0000ZUCK"
     }
+
+def test_parse_fm12_synop_total_cloud_amount() -> None:
+    # AAXX YYGGiw IIiii iRiXhVV Nddff ...; N is total cloud amount in oktas.
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 00000 10123") == 0
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 43210 10123") == 50
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 83210 10123") == 100
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960 93210 10123") == 100
+    assert parse_synop_sky_cover("AAXX 15004 57083 42960") is None
+
+
+def test_parse_fm12_synop_present_weather() -> None:
+    assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 70000 80000") is False
+    assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 70000 80000") is False
+    assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 75000 80000") is True
+
+
+def test_parse_observation_uses_fm12_cloud_and_weather_groups() -> None:
+    row = parse_observation(
+        datetime(2025, 6, 15, 8, tzinfo=UTC),
+        "AAXX 15004 57083 42960 83210 10123 20012 30000 40123 50001 60000 75000 80000",
+        None,
+        None,
+    )
+    assert row is not None
+    assert row.cloud_cover_pct == 100
+    assert row.precipitation is True
+
+def test_parse_noaa_compact_synop_report() -> None:
+    # NOAA GHCNh REM uses SYN<encoded header> followed by iRiXhVV Nddff.
+    assert parse_synop_sky_cover("SYN12457516 04850 32902 10266 76000") == 37.5
+    assert parse_synop_sky_cover("SYN12457516 04850 /2902 10266 76000") is None
+    assert parse_synop_precipitation("SYN12457516 04850 /2902 10266 76000") is True
+    assert parse_synop_precipitation("SYN12457516 04850 /2902 10266 70000") is False
+
+def test_common_cloud_model_comparison_uses_identical_cases() -> None:
+    sample = {
+        "station_id": "CHI0000ZUCK",
+        "target_date": "2025-06-16",
+        "lead_day": 1,
+        "forecast_condition": "sunny",
+        "observed_condition": "mostly_sunny",
+        "cloud_cover_abs_error_pct": 12.0,
+        "forecast_mean_cloud_cover_pct": 25.0,
+        "observed_mean_cloud_cover_pct": 37.0,
+    }
+    result = _common_cloud_model_comparison({
+        "ecmwf_ifs": {1: [sample], 2: [], 3: []},
+        "ecmwf_ifs025": {1: [sample], 2: [], 3: []},
+    })
+    assert result["common_case_count"] == 1
+    assert result["by_model"]["ecmwf_ifs"]["1"]["station_days"] == 1
+
+
+def test_low_cloud_guardrail_sensitivity_is_holdout_only() -> None:
+    rows = [
+        {
+            "run_at": "2026-06-15T00:00:00+00:00",
+            "lead_day": 1,
+            "forecast_condition": "cloudy",
+            "forecast_condition_total_cloud_only": "sunny",
+            "observed_condition": "sunny",
+        },
+        {
+            "run_at": "2026-06-15T00:00:00+00:00",
+            "lead_day": 1,
+            "forecast_condition": "sunny",
+            "forecast_condition_total_cloud_only": "sunny",
+            "observed_condition": "sunny",
+        },
+    ]
+    result = _low_cloud_guardrail_sensitivity({"ecmwf_ifs": rows})
+    lead = result["by_model"]["ecmwf_ifs"]["1"]
+    assert result["holdout_year"] == 2026
+    assert lead["holdout_station_days"] == 2
+    assert lead["baseline_low_cloud_guardrail"]["recall_pct"] == 50
+    assert lead["counterfactual_total_cloud_only"]["recall_pct"] == 100
+    assert lead["sufficient_for_threshold_review"] is False
+    assert result["production_rule_changed"] is False
+
+
+def test_temporal_holdout_solar_validation_uses_prior_year_only() -> None:
+    def sample(run_at: str, forecast: float, reference: float) -> dict[str, Any]:
+        return {
+            "run_at": run_at,
+            "lead_day": 1,
+            "forecast_shortwave_mj_m2": forecast,
+            "nasa_power_shortwave_mj_m2": reference,
+        }
+
+    result = _temporal_holdout_solar_validation({
+        "ecmwf_ifs": [
+            sample("2024-06-15T00:00:00+00:00", 12, 10),
+            sample("2025-06-15T00:00:00+00:00", 14, 10),
+            sample("2026-06-15T00:00:00+00:00", 15, 10),
+            sample("2026-07-15T00:00:00+00:00", 11, 10),
+        ]
+    })
+    lead = result["by_model"]["ecmwf_ifs"]["1"]
+    assert result["holdout_year"] == 2026
+    assert lead["training_spatial_days"] == 2
+    assert lead["holdout_spatial_days"] == 2
+    assert lead["training_bias_mj_m2"] == 3
+    assert lead["holdout_raw"]["mae_mj_m2"] == 3
+    assert lead["holdout_bias_corrected"]["mae_mj_m2"] == 2
+    assert result["production_correction_applied"] is False
+
+
+def test_common_solar_model_comparison_uses_identical_cases() -> None:
+    sample = {
+        "grid_key": "30.5,104.5",
+        "target_date": "2025-06-16",
+        "lead_day": 1,
+        "forecast_shortwave_mj_m2": 18.0,
+        "nasa_power_shortwave_mj_m2": 16.0,
+    }
+    result = _common_solar_model_comparison({
+        "ecmwf_ifs": {1: [sample], 2: [], 3: []},
+        "ecmwf_aifs025_single": {1: [sample], 2: [], 3: []},
+    })
+    assert result["common_case_count"] == 1
+    assert result["by_model"]["ecmwf_ifs"]["1"]["mae_mj_m2"] == 2.0
+

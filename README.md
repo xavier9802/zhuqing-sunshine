@@ -4,6 +4,10 @@
 
 追晴（Sunshine Forecast）是面向四川盆地的非商业日照预测实验站点。采用 **Next.js 静态导出 + GitHub Actions 定时采集 + GitHub Pages**，没有常驻 API、PostgreSQL、PostGIS、Redis 或 Docker。
 
+## 版本状态
+
+当前开发目标：**V1.2**。本分支包含历史验证、模型对照和时间外留出分析；完成真实全盆地构建验收并合并至 main 后，才视为正式发布。
+
 ## 立即查看
 
 GitHub Pages **预期**网址：
@@ -43,7 +47,7 @@ https://xavier9802.github.io/zhuqing-sunshine/
 需 Node.js 22+、Python 3.12+，以及 npm。
 
 \`\`\`bash
-git clone -b feature/github-pages-static-mvp https://github.com/xavier9802/zhuqing-sunshine.git
+git clone -b main https://github.com/xavier9802/zhuqing-sunshine.git
 cd zhuqing-sunshine
 python3 -m pip install -r sitegen/requirements.txt
 npm install
@@ -91,7 +95,8 @@ GitHub Pages 首次发布需要在仓库 **Settings → Pages → Build and depl
 - 源数据的空间/时间分辨率因模型而异，部分小时结果是服务端插值值。
 - USGS 数据是 1:5,000,000 结构沉积盆地概化边界，不代表精确地形或行政边界；其原始数据缺少 .prj，WGS84 为临时展示假设。
 - GitHub Pages、OpenStreetMap 地图瓦片对中国大陆访问的稳定性不能保证。
-- 尚未对接地面观测站并完成回测，**不展示预测准确率或校准后的概率**。
+- 已建立 NOAA GHCNh 机场/地面站历史验证与 NASA POWER 短波辐射对照；当前只有 3 个可用云况观测站，216 个站点日样本，尚未达到四站门槛，结果仍属探索性验证。
+- NASA POWER 是卫星/再分析辐射参考产品，不是地面日照时数仪器；**不展示未经验证的预测准确率或校准概率**。
 
 来源：[Open-Meteo](https://open-meteo.com/) · [GeoNames](https://www.geonames.org/)（CC BY 4.0）· [USGS OFR 00-047](https://pubs.usgs.gov/of/2000/of00-047/) · © OpenStreetMap contributors。
 
@@ -99,3 +104,12 @@ GitHub Pages 首次发布需要在仓库 **Settings → Pages → Build and depl
 ## 历史预报回测
 
 运行 python -m sitegen.backtest，使用 NOAA NCEI GHCNh 地面站逐时报文与 Open-Meteo 历史 ECMWF IFS HRES 单次预报进行逐站、逐日、1–3 天提前量验证。报告输出混淆矩阵、晴/晴间多云识别 precision/recall/F1，以及云量 MAE 和偏差。该数据是机场/地面站云况代理，不是日照时数传感器；样本不足时不得据此调整生产阈值或宣传预测准确率。详细口径见 docs/FORECAST_BACKTEST.md。
+
+
+## V1.2 验证进展
+
+- 24 批次 ECMWF IFS HRES 历史预报；12 个候选站点中，3 个机场站具备足够的云况观测，形成 216 个站点日样本。
+- 另有 12 个空间点位用于 NASA POWER 日太阳辐射对照，并按 2024–2025 训练、2026 时间外留出评估辐射偏差稳定性。
+- 真实全盆地 HRES 构建 smoke 已通过：372 个位置、72 小时预报、14 城市，云量诊断完整度检查通过。
+- 由于可用云况观测站不足，V1.2 不会据此擅自修改生产晴天阈值，也不会把辐射订正研究结果自动应用于线上预测。
+- 详见 [历史验证协议](docs/FORECAST_BACKTEST.md)。

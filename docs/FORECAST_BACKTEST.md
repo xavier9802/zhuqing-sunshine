@@ -17,7 +17,11 @@ Measure the ECMWF IFS HRES forecast's ability to predict daytime clear/bright sk
 - Use daytime local observations from 07:00 through 18:59 Asia/Shanghai.
 - Match each forecast valid time to the nearest NOAA report within 35 minutes.
 - Require at least four matched daylight hours for a station-day. Missing observations are excluded, never treated as clear or dry.
-- Use NOAA raw report remarks containing a parseable METAR/SYNOP cloud layer group. Cloud categories are converted to approximate oktas midpoints: FEW 18.75%, SCT 43.75%, BKN 75%, OVC/VV 100%; CLR/SKC 0%. CAVOK/NSC/NCD are conservatively set to 26% because they do not prove a completely cloud-free sky.
+- Prefer native GHCNh sky-cover columns (`sky_condition`, `sky_cover`, `sky_cover_1..3`, `sky_cover_summation_1..4`, and `sky_cover_layer_1..4`) before falling back to NOAA raw METAR/SYNOP remarks. Numeric sky-cover codes are interpreted as oktas where documented; cloud categories are converted to approximate oktas midpoints: FEW 18.75%, SCT 43.75%, BKN 75%, OVC/VV 100%; CLR/SKC 0%. CAVOK/NSC/NCD are conservatively set to 26% because they do not prove a completely cloud-free sky.
+- Decode native FM-12 reports in both AAXX and NOAA GHCNh compact `SYN...` forms. Total cloud amount `N` in the `Nddff` group is converted from oktas to percent; a slash (`/`) means cloud amount was not reported and is excluded, never treated as clear. The `7wwW1W2` group is used to flag present precipitation (`ww` 50–99). Station diagnostics distinguish FM-12 reports with a cloud amount from reports where `N` is missing.
+- Add an independent daily solar-radiation comparison using NASA POWER `ALLSKY_SFC_SW_DWN` (`AG` community, MJ/m²/day, local solar time) against the daily sum of Open-Meteo hourly shortwave radiation. NASA POWER uses a 0.5° × 0.625° meteorological grid and is a satellite/reanalysis product, not a direct sunshine-duration sensor; its results are reported separately and cannot by themselves calibrate sunshine probability.
+- Add a time-ordered holdout: the latest available forecast-initialisation year is held out, and earlier years are used only to estimate a lead-specific mean radiation bias. Raw and bias-adjusted holdout MAE/RMSE/bias are reported separately. This evaluates temporal bias stability against NASA POWER only; no correction is automatically applied to production or to sunshine-duration classification.
+- Add a holdout-only low-cloud guardrail sensitivity comparison. The counterfactual removes the low-cloud restriction while retaining total-cloud, sunshine-duration and precipitation checks. It is diagnostic only; each lead requires at least 50 holdout station-days before a threshold change can even be considered.
 
 ## Metrics
 
@@ -32,13 +36,50 @@ For each lead day, report station-day binary classification metrics for the posi
 - A stronger sunshine-duration verification requires China Meteorological Administration surface station sunshine-duration observations or a separately validated satellite-derived surface solar-radiation product.
 
 
-## First live exploratory run and quality gates
+## Latest exploratory run and quality gates (2026-11-10)
 
-The first successful pipeline execution used 12 archived HRES initialisations and selected 8 NOAA stations with year files. Only two sites (CHI0000ZUCK / Jiangbei and CHI0000ZUTF / Chengdu Tianfu) had sufficiently parseable hourly sky conditions. They produced 72 station-days (24 per lead), which is below research-review thresholds; results MUST be labeled exploratory and not presented as an operational accuracy figure.
+The current 24-run audit sampled monthly 00 UTC ECMWF IFS HRES initialisations from 2024-04-15 through 2026-10-15. Twelve NOAA stations were selected; only three airport stations supplied enough parseable cloud observations:
 
-New quality gates require at least 200 station-days, at least four independently located usable stations, 50 station-days for each of the 1–3 day leads, and coverage of winter/spring/summer/autumn. Passing these sampling checks still requires independent holdout observations and actual sunshine-duration/solar-radiation measurements before any operational calibration or probability claim.
+- Verified stations: CHI0000ZUCK (Chongqing Jiangbei), CHI0000ZUTF (Chengdu Tianfu), CHI0000ZUUU (Chengdu Shuangliu).
+- Candidate stations: 12; verified stations: 3.
+- HRES samples: 216 station-days, 72 per lead, across all four seasons.
+- The sample-size, per-lead and seasonal checks pass, but the four-station requirement fails. The report remains exploratory and cannot support a basin-wide accuracy claim.
 
-The cloud-cover MAE averages per-station-day hourly errors equally, not all raw hourly pairs equally. Note that the 2024–2026 period includes an ECMWF IFS cycle change; formal calibration should stratify skill by model cycle.
+Most non-airport SYNOP reports in the sample encode the total-cloud N group as /. This means cloud amount was not reported. The parser correctly excludes those records rather than treating missing cloud as clear. Adding more such stations does not increase the usable cloud-observation sample.
+
+HRES station-proxy classification metrics:
+
+| Lead | Accuracy | Precision | Recall | F1 | Cloud MAE | Cloud bias |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 day | 61.1% | 90.0% | 51.9% | 65.9% | 42.8 pp | +31.1 pp |
+| 2 days | 59.7% | 92.3% | 47.1% | 62.3% | 42.4 pp | +31.9 pp |
+| 3 days | 63.9% | 80.0% | 54.5% | 64.9% | 37.2 pp | +23.5 pp |
+
+These are three-airport cloud-condition proxy metrics, not observed sunshine-duration accuracy.
+
+NASA POWER radiation research comparison uses 12 spatial points and 288 spatial-day pairs per lead for HRES. A time-ordered holdout uses 2024–2025 for training and 2026 for holdout:
+
+| Lead | Training bias | 2026 raw holdout MAE | Raw holdout bias | Bias-corrected MAE | MAE improvement |
+|---|---:|---:|---:|---:|---:|
+| 1 day | +0.11 MJ/m² | 3.24 MJ/m² | +2.27 MJ/m² | 3.19 MJ/m² | 1.5% |
+| 2 days | +0.37 MJ/m² | 3.69 MJ/m² | +2.78 MJ/m² | 3.55 MJ/m² | 3.8% |
+| 3 days | +0.79 MJ/m² | 4.04 MJ/m² | +2.33 MJ/m² | 3.74 MJ/m² | 7.4% |
+
+The training-period bias does not transfer cleanly to 2026. Even after the research-only correction, residual holdout bias remains. No correction is applied to production.
+
+Low-cloud guardrail sensitivity on the 2026 holdout (24 station-days per lead):
+
+| Lead | Original F1 | Total-cloud-only F1 | Original recall | Total-cloud-only recall |
+|---|---:|---:|---:|---:|
+| 1 day | 66.7% | 26.7% | 58.3% | 16.7% |
+| 2 days | 50.0% | 42.1% | 35.7% | 28.6% |
+| 3 days | 64.3% | 66.7% | 52.9% | 52.9% |
+
+The counterfactual removes the low-cloud restriction while retaining total-cloud, forecast sunshine-duration and precipitation checks. It degrades the 1–2 day results and only marginally improves the 3-day F1. Each lead has only 24 holdout station-days, below the 50-day review threshold. The low-cloud guardrail is retained; production thresholds remain unchanged.
+
+Live full-basin integration smoke (2026-11-10) successfully retrieved ECMWF IFS HRES for 372 locations (358 grid cells plus 14 cities), generated 72 hourly forecast steps, and passed the low-cloud/visibility diagnostic checks. The first hourly sample had 100% cloud-diagnostic completeness, 8.2% low-cloud cover and 12,334 m visibility. Generated data occupied 2.5 MB. This confirms live data/build integration, not forecast accuracy.
+
+IFS 0.25° and AIFS 0.25° archived runs were available for only 5 of the 24 dates. Their station and radiation comparisons are too small for model-selection or calibration decisions. The three ECMWF products remain directional cross-checks, not independent ensemble members.
 
 ## Repeated verification
 

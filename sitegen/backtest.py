@@ -19,6 +19,7 @@ from shapely.geometry import Point
 
 from sitegen.forecast import _classify_day
 from sitegen.geography import download_usgs_boundary
+from sitegen.nasa_power import load_nasa_power_daily_radiation
 from sitegen.open_meteo import OpenMeteoClient, WeatherLocation, parse_valid_time
 
 LOG = logging.getLogger("zhuqing.backtest")
@@ -33,6 +34,7 @@ GHCNH_YEAR_URL = (
     "hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
 )
 FORECAST_MODEL = "ecmwf_ifs"
+FORECAST_MODELS = ("ecmwf_ifs", "ecmwf_ifs025", "ecmwf_aifs025_single")
 DAY_HOURS = range(7, 19)
 MIN_MATCHED_HOURS = 4
 OBSERVATION_TOLERANCE = timedelta(minutes=35)
@@ -152,18 +154,72 @@ def parse_station_catalog(content: str) -> list[Station]:
     return sorted(stations.values(), key=lambda item: item.station_id)
 
 
+def _synop_cloud_group(report: str) -> str | None:
+    text = report.upper().replace("=", " ")
+    tokens = text.split()
+    # NOAA GHCNh REM stores many FM-12 reports in compact form:
+    # SYN<day/hour/station> iRiXhVV Nddff ...
+    if tokens and tokens[0].startswith("SYN") and len(tokens) >= 3:
+        return tokens[2]
+    match = re.search(
+        r"\bAAXX\s+\d{5}\s+\d{5}\s+\d{5}\s+([^\s]+)",
+        text,
+    )
+    return match.group(1) if match else None
+
+
+def parse_synop_sky_cover(report: str) -> float | None:
+    """Decode FM-12 total cloud amount N from either NOAA compact or AAXX form."""
+    group = _synop_cloud_group(report)
+    if not group or not re.fullmatch(r"[0-9]\d{4}", group):
+        # A slash in Nddff means total cloud amount was not reported.
+        return None
+    amount = int(group[0])
+    if amount <= 8:
+        return round(amount / 8 * 100, 1)
+    if amount == 9:
+        return 100.0
+    return None
+
+
+def parse_synop_precipitation(report: str) -> bool:
+    """Detect present precipitation from the FM-12 ww group when available."""
+    text = report.upper().replace("=", " ")
+    tokens = text.split()
+    if tokens and tokens[0].startswith("SYN"):
+        weather_groups = tokens[3:]
+    elif "AAXX" in text:
+        cloud_group = _synop_cloud_group(text)
+        if not cloud_group:
+            return False
+        try:
+            start = next(i for i, token in enumerate(tokens) if token == cloud_group)
+        except StopIteration:
+            return False
+        weather_groups = tokens[start + 1:]
+    else:
+        return False
+    for token in weather_groups:
+        match = re.fullmatch(r"7(\d{2})\d{2}", token)
+        if match:
+            # SYNOP ww 50–99 describes current drizzle/rain/snow or other
+            # precipitation phenomena. 20–49 are not treated as current rain.
+            return int(match.group(1)) >= 50
+    return False
+
+
 def parse_sky_cover(report: str) -> float | None:
     text = report.upper()
     groups = CLOUD_TOKEN.findall(text)
     if groups:
         return max(CLOUD_FRACTIONS['VV' if group.startswith('VV') else group[:3]] for group in groups)
     clear = CLEAR_TOKEN.findall(text)
-    if not clear:
-        return None
-    if "CAVOK" in clear or "NSC" in clear or "NCD" in clear:
-        # CAVOK/NSC do not prove a cloud-free sky; keep them in the bright band.
-        return 26.0
-    return 0.0
+    if clear:
+        if "CAVOK" in clear or "NSC" in clear or "NCD" in clear:
+            # CAVOK/NSC do not prove a cloud-free sky; keep them in the bright band.
+            return 26.0
+        return 0.0
+    return parse_synop_sky_cover(text)
 
 
 def parse_observation(
@@ -184,8 +240,10 @@ def parse_observation(
         report.upper(),
     ):
         visibility_m = 10_000.0
-    precipitation = bool(PRECIP_TOKEN.search(report.upper())) or (
-        precipitation_mm is not None and precipitation_mm >= 0.1
+    precipitation = (
+        bool(PRECIP_TOKEN.search(report.upper()))
+        or parse_synop_precipitation(report)
+        or (precipitation_mm is not None and precipitation_mm >= 0.1)
     )
     return Observation(
         valid_at=valid_at.astimezone(UTC),
@@ -230,9 +288,22 @@ def parse_sky_cover_code(value: str | float | None) -> float | None:
 
 
 def parse_sky_cover_from_row(row: dict[str, Any]) -> float | None:
-    overall = parse_sky_cover_code(_field(row, "sky_condition"))
+    overall = parse_sky_cover_code(_field(row, "sky_condition", "sky_cover"))
     if overall is not None:
         return overall
+
+    # GHCNh v1 files and legacy source streams also expose sky_cover_1..3.
+    # These are per-layer oktas values; retain the maximum reported layer
+    # as a conservative cloud-cover proxy rather than treating missing layers
+    # as clear sky.
+    legacy_layers = [
+        parse_sky_cover_code(_field(row, f"sky_cover_{index}"))
+        for index in range(1, 4)
+    ]
+    available = [value for value in legacy_layers if value is not None]
+    if available:
+        return max(available)
+
     summations = [
         parse_sky_cover_code(_field(row, f"sky_cover_summation_{index}"))
         for index in range(1, 5)
@@ -417,7 +488,7 @@ def load_station_year(
     year: int,
     cache_dir: Path,
     target_dates: set[date],
-    diagnostics: dict[str, int] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> list[Observation]:
     cache_path = cache_dir / "ghcnh" / str(year) / f"{station.station_id}.psv"
     if cache_path.is_file():
@@ -446,6 +517,23 @@ def load_station_year(
         report = _field(row, "REM", "REMARKS") or ""
         if report and diagnostics is not None:
             diagnostics["rows_with_raw_report"] = diagnostics.get("rows_with_raw_report", 0) + 1
+            if report.upper().startswith("SYN") or "AAXX" in report.upper():
+                diagnostics["rows_with_fm12_synop_report"] = (
+                    diagnostics.get("rows_with_fm12_synop_report", 0) + 1
+                )
+                if parse_synop_sky_cover(report) is None:
+                    diagnostics["rows_with_fm12_synop_cloud_missing"] = (
+                        diagnostics.get("rows_with_fm12_synop_cloud_missing", 0) + 1
+                    )
+                else:
+                    diagnostics["rows_with_fm12_synop_cloud"] = (
+                        diagnostics.get("rows_with_fm12_synop_cloud", 0) + 1
+                    )
+                if parse_synop_precipitation(report):
+                    diagnostics["rows_with_fm12_synop_precipitation"] = (
+                        diagnostics.get("rows_with_fm12_synop_precipitation", 0) + 1
+                    )
+
         sky_cover = parse_sky_cover_from_row(row)
         if sky_cover is not None and diagnostics is not None:
             diagnostics["rows_with_sky_cover_fields"] = diagnostics.get("rows_with_sky_cover_fields", 0) + 1
@@ -518,6 +606,30 @@ def _forecast_day_metrics(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     rain_hours = sum(1 for row in valid if row["precipitation_mm"] >= 0.1)
     mean_cloud = sum(row["cloud_cover_pct"] for row in valid) / len(valid)
     mean_low = sum(row["low_cloud_cover_pct"] for row in valid) / len(valid)
+    # Diagnostic counterfactual: classify using total-cloud observations only,
+    # removing the low-cloud guardrail to measure how much it suppresses recall.
+    clear_hours_total_cloud_only = sum(
+        1 for row in valid
+        if row["sunshine_seconds"] >= 1800
+        and row["cloud_cover_pct"] <= 25
+        and row["precipitation_mm"] < 0.1
+        and (row["visibility_m"] is None or row["visibility_m"] >= 1000)
+    )
+    bright_hours_total_cloud_only = sum(
+        1 for row in valid
+        if row["sunshine_seconds"] >= 1800
+        and row["cloud_cover_pct"] <= 50
+        and row["precipitation_mm"] < 0.1
+        and (row["visibility_m"] is None or row["visibility_m"] >= 1000)
+    )
+    condition_total_cloud_only = _classify_day(
+        sunshine_hours=sunshine_hours,
+        mean_cloud=mean_cloud,
+        mean_low_cloud=None,
+        clear_hours=clear_hours_total_cloud_only,
+        bright_hours=bright_hours_total_cloud_only,
+        rain_hours=rain_hours,
+    )
     return {
         "condition": _classify_day(
             sunshine_hours=sunshine_hours,
@@ -527,10 +639,14 @@ def _forecast_day_metrics(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
             bright_hours=bright_hours,
             rain_hours=rain_hours,
         ),
+        "condition_total_cloud_only": condition_total_cloud_only,
         "sunshine_hours": round(sunshine_hours, 2),
         "mean_cloud_cover_pct": round(mean_cloud, 1),
+        "mean_low_cloud_cover_pct": round(mean_low, 1),
         "clear_hours": clear_hours,
         "bright_hours": bright_hours,
+        "clear_hours_total_cloud_only": clear_hours_total_cloud_only,
+        "bright_hours_total_cloud_only": bright_hours_total_cloud_only,
         "rain_hours": rain_hours,
         "matched_hours": len(valid),
     }
@@ -627,6 +743,302 @@ def _lead_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _low_cloud_guardrail_sensitivity(
+    samples_by_model: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    all_samples = [sample for samples in samples_by_model.values() for sample in samples]
+    years = sorted({int(sample["run_at"][:4]) for sample in all_samples})
+    if not years:
+        return {"status": "no_samples", "holdout_year": None, "by_model": {}, "production_rule_changed": False}
+    holdout_year = years[-1]
+    by_model: dict[str, Any] = {}
+    for model_id, samples in samples_by_model.items():
+        by_lead: dict[str, Any] = {}
+        for lead in (1, 2, 3):
+            holdout = [
+                sample for sample in samples
+                if sample["lead_day"] == lead and int(sample["run_at"][:4]) == holdout_year
+            ]
+            baseline = _binary_metrics([
+                {
+                    "forecast_condition": sample["forecast_condition"],
+                    "observed_condition": sample["observed_condition"],
+                }
+                for sample in holdout
+            ])
+            total_cloud_only = _binary_metrics([
+                {
+                    "forecast_condition": sample["forecast_condition_total_cloud_only"],
+                    "observed_condition": sample["observed_condition"],
+                }
+                for sample in holdout
+            ])
+            by_lead[str(lead)] = {
+                "holdout_station_days": len(holdout),
+                "baseline_low_cloud_guardrail": baseline,
+                "counterfactual_total_cloud_only": total_cloud_only,
+                "recall_delta_percentage_points": (
+                    round(total_cloud_only["recall_pct"] - baseline["recall_pct"], 1)
+                    if total_cloud_only["recall_pct"] is not None and baseline["recall_pct"] is not None
+                    else None
+                ),
+                "precision_delta_percentage_points": (
+                    round(total_cloud_only["precision_pct"] - baseline["precision_pct"], 1)
+                    if total_cloud_only["precision_pct"] is not None and baseline["precision_pct"] is not None
+                    else None
+                ),
+                "sufficient_for_threshold_review": len(holdout) >= 50,
+            }
+        by_model[model_id] = by_lead
+    return {
+        "status": "exploratory_sensitivity_only",
+        "holdout_year": holdout_year,
+        "by_model": by_model,
+        "production_rule_changed": False,
+        "note": (
+            "对照组仅移除低云约束，仍使用总云量、日照时长和降水条件。"
+            "这是对低云护栏影响的反事实敏感性分析，不是独立日照实测；"
+            "每个提前量留出样本少于50时，不足以据此修改生产阈值。"
+        ),
+    }
+
+
+def _solar_radiation_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    errors = [
+        sample["forecast_shortwave_mj_m2"] - sample["nasa_power_shortwave_mj_m2"]
+        for sample in samples
+    ]
+    absolute_errors = [abs(value) for value in errors]
+    if not samples:
+        return {
+            "grid_days": 0,
+            "spatial_point_count": 0,
+            "mae_mj_m2": None,
+            "rmse_mj_m2": None,
+            "bias_mj_m2": None,
+        }
+    return {
+        "grid_days": len(samples),
+        "spatial_point_count": len({sample["grid_key"] for sample in samples}),
+        "mae_mj_m2": round(sum(absolute_errors) / len(absolute_errors), 2),
+        "rmse_mj_m2": round((sum(value * value for value in errors) / len(errors)) ** 0.5, 2),
+        "bias_mj_m2": round(sum(errors) / len(errors), 2),
+        "mean_forecast_mj_m2": round(
+            sum(sample["forecast_shortwave_mj_m2"] for sample in samples) / len(samples), 2
+        ),
+        "mean_nasa_power_mj_m2": round(
+            sum(sample["nasa_power_shortwave_mj_m2"] for sample in samples) / len(samples), 2
+        ),
+    }
+
+
+def _solar_radiation_quality_gate(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    spatial_point_count = len({sample["grid_key"] for sample in samples})
+    lead_counts = {
+        str(lead): sum(sample["lead_day"] == lead for sample in samples)
+        for lead in (1, 2, 3)
+    }
+    months = {int(sample["target_date"][5:7]) for sample in samples}
+    seasons = {
+        "winter" if month in {12, 1, 2}
+        else "spring" if month in {3, 4, 5}
+        else "summer" if month in {6, 7, 8}
+        else "autumn"
+        for month in months
+    }
+    checks = {
+        "at_least_200_spatial_days": len(samples) >= 200,
+        "at_least_4_spatial_points": spatial_point_count >= 4,
+        "at_least_50_days_per_lead": all(count >= 50 for count in lead_counts.values()),
+        "four_seasons_represented": len(seasons) == 4,
+    }
+    return {
+        "sufficient_for_radiation_research_review": bool(samples) and all(checks.values()),
+        "calibrated_sunshine_probability": False,
+        "checks": checks,
+        "unique_spatial_points": spatial_point_count,
+        "lead_spatial_days": lead_counts,
+        "represented_seasons": sorted(seasons),
+        "caveat": (
+            "NASA POWER ALLSKY_SFC_SW_DWN 使用约 0.5° × 0.625° 的卫星/再分析太阳辐射网格，"
+            "不是地面日照时数仪器观测；该门槛只允许开展辐射误差研究，不代表可直接标定晴天概率。"
+        ),
+    }
+
+
+def _common_solar_model_comparison(
+    samples_by_model: dict[str, dict[int, list[dict[str, Any]]]],
+) -> dict[str, Any]:
+    indexes = {
+        model_id: {
+            (sample["grid_key"], sample["target_date"], sample["lead_day"]): sample
+            for lead_samples in lead_map.values()
+            for sample in lead_samples
+        }
+        for model_id, lead_map in samples_by_model.items()
+    }
+    available_models = [model_id for model_id, index in indexes.items() if index]
+    if len(available_models) < 2:
+        return {
+            "common_case_count": 0,
+            "models": available_models,
+            "by_model": {},
+            "note": "Fewer than two models have comparable NASA POWER samples.",
+        }
+    common_keys = set.intersection(
+        *(set(indexes[model_id]) for model_id in available_models)
+    )
+    by_model: dict[str, Any] = {}
+    for model_id in available_models:
+        by_model[model_id] = {
+            str(lead): _solar_radiation_summary([
+                indexes[model_id][key]
+                for key in common_keys
+                if key[2] == lead
+            ])
+            for lead in (1, 2, 3)
+        }
+    return {
+        "common_case_count": len(common_keys),
+        "models": available_models,
+        "by_model": by_model,
+        "note": (
+            "Only identical NASA POWER spatial point, target date, and lead-time cases "
+            "are compared across models; models with unavailable archived runs are excluded."
+        ),
+    }
+
+
+def _radiation_error_metrics(errors: list[float]) -> dict[str, Any]:
+    if not errors:
+        return {"sample_count": 0, "mae_mj_m2": None, "rmse_mj_m2": None, "bias_mj_m2": None}
+    return {
+        "sample_count": len(errors),
+        "mae_mj_m2": round(sum(abs(value) for value in errors) / len(errors), 2),
+        "rmse_mj_m2": round((sum(value * value for value in errors) / len(errors)) ** 0.5, 2),
+        "bias_mj_m2": round(sum(errors) / len(errors), 2),
+    }
+
+
+def _temporal_holdout_solar_validation(
+    samples_by_model: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    all_samples = [sample for samples in samples_by_model.values() for sample in samples]
+    years = sorted({int(sample["run_at"][:4]) for sample in all_samples})
+    if len(years) < 2:
+        return {
+            "status": "insufficient_years",
+            "holdout_year": None,
+            "by_model": {},
+            "production_correction_applied": False,
+            "note": "至少需要两个不同预报年份才能进行时间外留出验证。",
+        }
+
+    holdout_year = years[-1]
+    cutoff = f"{holdout_year}-01-01"
+    by_model: dict[str, Any] = {}
+    for model_id, samples in samples_by_model.items():
+        by_lead: dict[str, Any] = {}
+        for lead in (1, 2, 3):
+            train = [
+                sample for sample in samples
+                if sample["lead_day"] == lead and sample["run_at"][:10] < cutoff
+            ]
+            holdout = [
+                sample for sample in samples
+                if sample["lead_day"] == lead and sample["run_at"][:10] >= cutoff
+            ]
+            train_errors = [
+                sample["forecast_shortwave_mj_m2"] - sample["nasa_power_shortwave_mj_m2"]
+                for sample in train
+            ]
+            holdout_errors = [
+                sample["forecast_shortwave_mj_m2"] - sample["nasa_power_shortwave_mj_m2"]
+                for sample in holdout
+            ]
+            train_bias = sum(train_errors) / len(train_errors) if train_errors else None
+            corrected_errors = (
+                [error - train_bias for error in holdout_errors]
+                if train_bias is not None else []
+            )
+            raw_metrics = _radiation_error_metrics(holdout_errors)
+            corrected_metrics = _radiation_error_metrics(corrected_errors)
+            enough = len(train) >= 50 and len(holdout) >= 50
+            raw_mae = raw_metrics["mae_mj_m2"]
+            corrected_mae = corrected_metrics["mae_mj_m2"]
+            by_lead[str(lead)] = {
+                "training_spatial_days": len(train),
+                "holdout_spatial_days": len(holdout),
+                "training_bias_mj_m2": round(train_bias, 2) if train_bias is not None else None,
+                "holdout_raw": raw_metrics,
+                "holdout_bias_corrected": corrected_metrics,
+                "sufficient_for_bias_stability_review": enough,
+                "mae_improvement_pct": (
+                    round((raw_mae - corrected_mae) / raw_mae * 100, 1)
+                    if enough and raw_mae not in {None, 0} and corrected_mae is not None
+                    else None
+                ),
+            }
+        by_model[model_id] = by_lead
+
+    return {
+        "status": "temporal_holdout_evaluated",
+        "training_period_end": f"{holdout_year - 1}-12-31",
+        "holdout_year": holdout_year,
+        "holdout_period_start": cutoff,
+        "split_method": "按预报初始化年份切分；最新可用年份留出，之前年份仅用于估计偏差",
+        "by_model": by_model,
+        "production_correction_applied": False,
+        "note": (
+            "该留出集验证的是 ECMWF 短波辐射相对 NASA POWER 再分析产品的时间外误差，"
+            "不是地面日照时数验证。偏差订正仅作研究对照，不自动应用于线上预报。"
+        ),
+    }
+
+
+def _common_cloud_model_comparison(
+    samples_by_model: dict[str, dict[int, list[dict[str, Any]]]],
+) -> dict[str, Any]:
+    indexes = {
+        model_id: {
+            (sample["station_id"], sample["target_date"], sample["lead_day"]): sample
+            for lead_samples in lead_map.values()
+            for sample in lead_samples
+        }
+        for model_id, lead_map in samples_by_model.items()
+    }
+    available_models = [model_id for model_id, index in indexes.items() if index]
+    if len(available_models) < 2:
+        return {
+            "common_case_count": 0,
+            "models": available_models,
+            "by_model": {},
+            "note": "Fewer than two models have comparable NOAA cloud-condition samples.",
+        }
+    common_keys = set.intersection(
+        *(set(indexes[model_id]) for model_id in available_models)
+    )
+    by_model: dict[str, Any] = {}
+    for model_id in available_models:
+        by_model[model_id] = {
+            str(lead): _lead_summary([
+                indexes[model_id][key]
+                for key in common_keys
+                if key[2] == lead
+            ])
+            for lead in (1, 2, 3)
+        }
+    return {
+        "common_case_count": len(common_keys),
+        "models": available_models,
+        "by_model": by_model,
+        "note": (
+            "Only identical NOAA station, target date, and lead-time cases are compared "
+            "across models; this is a small station-based proxy evaluation."
+        ),
+    }
+
+
 def sample_quality_gate(samples: list[dict[str, Any]]) -> dict[str, Any]:
     verified_stations = {row["station_id"] for row in samples}
     months = {int(row["target_date"][5:7]) for row in samples}
@@ -710,7 +1122,9 @@ def run_backtest(
             )
         stations = select_stations(available_candidates, boundary, max_stations)
         station_observations: dict[str, list[Observation]] = {}
-        station_diagnostics: dict[str, dict[str, int]] = {}
+        station_diagnostics: dict[str, dict[str, Any]] = {}
+        nasa_power_data: dict[str, tuple[str, dict[date, float]]] = {}
+        nasa_power_status: dict[str, str] = {}
         for station in stations:
             records: list[Observation] = []
             diagnostics: dict[str, int] = {}
@@ -726,6 +1140,25 @@ def run_backtest(
             )
             diagnostics["unique_usable_observations"] = len(unique)
             station_diagnostics[station.station_id] = diagnostics
+
+        nasa_start = min(target_dates)
+        nasa_end = max(target_dates)
+        for station in stations:
+            try:
+                grid_key, radiation_values = load_nasa_power_daily_radiation(
+                    station_http,
+                    station_id=station.station_id,
+                    latitude=station.latitude,
+                    longitude=station.longitude,
+                    start_date=nasa_start,
+                    end_date=nasa_end,
+                    cache_dir=cache_dir,
+                )
+                nasa_power_data[station.station_id] = (grid_key, radiation_values)
+                nasa_power_status[station.station_id] = "available"
+            except (httpx.HTTPError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+                LOG.warning("NASA POWER data unavailable for %s: %s", station.station_id, exc)
+                nasa_power_status[station.station_id] = str(exc)[:240]
     finally:
         station_http.close()
 
@@ -744,100 +1177,222 @@ def run_backtest(
         )
         for index, station in enumerate(stations)
     ]
-    samples_by_lead: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    samples_by_model: dict[str, dict[int, list[dict[str, Any]]]] = {
+        model_id: defaultdict(list) for model_id in FORECAST_MODELS
+    }
+    solar_samples_by_model: dict[str, dict[int, list[dict[str, Any]]]] = {
+        model_id: defaultdict(list) for model_id in FORECAST_MODELS
+    }
+    seen_solar_samples_by_model: dict[str, set[tuple[str, str, int]]] = {
+        model_id: set() for model_id in FORECAST_MODELS
+    }
     run_statuses: list[dict[str, Any]] = []
     try:
         for run_day in run_dates:
             run_at = datetime.combine(run_day, datetime.min.time(), tzinfo=UTC)
-            try:
-                forecast_items = forecast_client.fetch_forecast_batch(
-                    model_id=FORECAST_MODEL,
-                    locations=station_locations,
-                    run_at=run_at,
-                    forecast_days=5,
-                )
-            except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
-                LOG.warning("Forecast run %s unavailable: %s", run_at.isoformat(), exc)
+            model_forecasts: dict[str, list[dict[str, Any]]] = {}
+            for model_id in FORECAST_MODELS:
+                try:
+                    forecast_items = forecast_client.fetch_forecast_batch(
+                        model_id=model_id,
+                        locations=station_locations,
+                        run_at=run_at,
+                        forecast_days=5,
+                    )
+                except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
+                    LOG.warning(
+                        "Forecast run %s unavailable for %s: %s",
+                        run_at.isoformat(), model_id, exc,
+                    )
+                    run_statuses.append({
+                        "run_at": run_at.isoformat(),
+                        "model_id": model_id,
+                        "status": "unavailable",
+                        "reason": str(exc)[:240],
+                    })
+                    continue
+
+                model_forecasts[model_id] = forecast_items
                 run_statuses.append({
                     "run_at": run_at.isoformat(),
-                    "status": "unavailable",
-                    "reason": str(exc)[:240],
+                    "model_id": model_id,
+                    "status": "available",
+                    "station_count": len(forecast_items),
                 })
-                continue
-            run_statuses.append({
-                "run_at": run_at.isoformat(),
-                "status": "available",
-                "station_count": len(forecast_items),
-            })
-            for station, item in zip(stations, forecast_items, strict=True):
-                hourly = item.get("hourly", {})
-                time_values = hourly.get("time", [])
-                station_obs = station_observations.get(station.station_id, [])
-                obs_times = [row.valid_at for row in station_obs]
-                for lead_day in (1, 2, 3):
-                    target_day = run_at.astimezone(TIMEZONE).date() + timedelta(days=lead_day)
-                    pairs: list[tuple[dict[str, Any], Observation]] = []
+
+                # Compare each model's daily radiation with the same NASA POWER
+                # point/day reference. This remains separate from NOAA cloud labels.
+                for station, item in zip(stations, forecast_items, strict=True):
+                    hourly = item.get("hourly", {})
+                    time_values = hourly.get("time", [])
+                    radiation_by_day: dict[date, list[float]] = defaultdict(list)
+                    sunshine_by_day: dict[date, list[float]] = defaultdict(list)
                     for index, stamp in enumerate(time_values):
                         valid_at = parse_valid_time(stamp)
-                        local_time = valid_at.astimezone(TIMEZONE)
-                        if local_time.date() != target_day or local_time.hour not in DAY_HOURS:
-                            continue
-                        forecast_row = {
-                            "valid_at": valid_at,
-                            "sunshine_seconds": _forecast_number(hourly, "sunshine_duration", index),
-                            "cloud_cover_pct": _forecast_number(hourly, "cloud_cover", index),
-                            "low_cloud_cover_pct": _forecast_number(hourly, "cloud_cover_low", index),
-                            "precipitation_mm": _forecast_number(hourly, "precipitation", index),
-                            "visibility_m": _forecast_number(hourly, "visibility", index),
-                        }
-                        if any(
-                            forecast_row[key] is None
-                            for key in (
-                                "sunshine_seconds", "cloud_cover_pct",
-                                "low_cloud_cover_pct", "precipitation_mm",
-                            )
-                        ):
-                            continue
-                        observation = nearest_observation(station_obs, obs_times, valid_at)
-                        if observation is not None:
-                            pairs.append((forecast_row, observation))
-                    if len(pairs) < MIN_MATCHED_HOURS:
+                        local_day = valid_at.astimezone(TIMEZONE).date()
+                        shortwave = _forecast_number(hourly, "shortwave_radiation", index)
+                        sunshine_seconds = _forecast_number(hourly, "sunshine_duration", index)
+                        if shortwave is not None:
+                            radiation_by_day[local_day].append(shortwave)
+                        if sunshine_seconds is not None:
+                            sunshine_by_day[local_day].append(sunshine_seconds)
+
+                    nasa_record = nasa_power_data.get(station.station_id)
+                    if nasa_record is None:
                         continue
-                    forecast_metrics = _forecast_day_metrics([pair[0] for pair in pairs])
-                    observed_metrics = _observed_day_metrics([pair[1] for pair in pairs])
-                    if forecast_metrics is None or observed_metrics is None:
-                        continue
-                    cloud_errors = [
-                        abs(pair[0]["cloud_cover_pct"] - pair[1].cloud_cover_pct)
-                        for pair in pairs
-                    ]
-                    samples_by_lead[lead_day].append({
-                        "run_at": run_at.isoformat(),
-                        "target_date": target_day.isoformat(),
-                        "lead_day": lead_day,
-                        "station_id": station.station_id,
-                        "station_name": station.name,
-                        "forecast_condition": forecast_metrics["condition"],
-                        "observed_condition": observed_metrics["condition"],
-                        "matched_hours": len(pairs),
-                        "forecast_sunshine_hours": forecast_metrics["sunshine_hours"],
-                        "forecast_mean_cloud_cover_pct": forecast_metrics["mean_cloud_cover_pct"],
-                        "observed_mean_cloud_cover_pct": observed_metrics["mean_cloud_cover_pct"],
-                        "cloud_cover_abs_error_pct": round(sum(cloud_errors) / len(cloud_errors), 1),
-                    })
+                    spatial_key, nasa_daily = nasa_record
+                    for lead_day in (1, 2, 3):
+                        target_day = (
+                            run_at.astimezone(TIMEZONE).date()
+                            + timedelta(days=lead_day)
+                        )
+                        nasa_radiation = nasa_daily.get(target_day)
+                        forecast_radiation_hours = radiation_by_day.get(target_day, [])
+                        if nasa_radiation is None or len(forecast_radiation_hours) < 18:
+                            continue
+                        dedupe_key = (spatial_key, target_day.isoformat(), lead_day)
+                        if dedupe_key in seen_solar_samples_by_model[model_id]:
+                            continue
+                        seen_solar_samples_by_model[model_id].add(dedupe_key)
+                        forecast_radiation = sum(forecast_radiation_hours) * 0.0036
+                        sunshine_hours = sum(sunshine_by_day.get(target_day, [])) / 3600
+                        solar_samples_by_model[model_id][lead_day].append({
+                            "run_at": run_at.isoformat(),
+                            "target_date": target_day.isoformat(),
+                            "lead_day": lead_day,
+                            "grid_key": spatial_key,
+                            "station_id": station.station_id,
+                            "model_id": model_id,
+                            "forecast_shortwave_mj_m2": round(forecast_radiation, 2),
+                            "nasa_power_shortwave_mj_m2": round(nasa_radiation, 2),
+                            "forecast_sunshine_hours": round(sunshine_hours, 2),
+                            "matched_radiation_hours": len(forecast_radiation_hours),
+                        })
+
+            # Compare all model condition labels against the same NOAA station observations.
+            for model_id, forecast_items in model_forecasts.items():
+                for station, item in zip(stations, forecast_items, strict=True):
+                    hourly = item.get("hourly", {})
+                    time_values = hourly.get("time", [])
+                    station_obs = station_observations.get(station.station_id, [])
+                    obs_times = [row.valid_at for row in station_obs]
+                    for lead_day in (1, 2, 3):
+                        target_day = (
+                            run_at.astimezone(TIMEZONE).date()
+                            + timedelta(days=lead_day)
+                        )
+                        pairs: list[tuple[dict[str, Any], Observation]] = []
+                        for index, stamp in enumerate(time_values):
+                            valid_at = parse_valid_time(stamp)
+                            local_time = valid_at.astimezone(TIMEZONE)
+                            if local_time.date() != target_day or local_time.hour not in DAY_HOURS:
+                                continue
+                            forecast_row = {
+                                "valid_at": valid_at,
+                                "sunshine_seconds": _forecast_number(hourly, "sunshine_duration", index),
+                                "cloud_cover_pct": _forecast_number(hourly, "cloud_cover", index),
+                                "low_cloud_cover_pct": _forecast_number(hourly, "cloud_cover_low", index),
+                                "precipitation_mm": _forecast_number(hourly, "precipitation", index),
+                                "visibility_m": _forecast_number(hourly, "visibility", index),
+                            }
+                            if any(
+                                forecast_row[key] is None
+                                for key in (
+                                    "sunshine_seconds", "cloud_cover_pct",
+                                    "low_cloud_cover_pct", "precipitation_mm",
+                                )
+                            ):
+                                continue
+                            observation = nearest_observation(station_obs, obs_times, valid_at)
+                            if observation is not None:
+                                pairs.append((forecast_row, observation))
+                        if len(pairs) < MIN_MATCHED_HOURS:
+                            continue
+                        forecast_metrics = _forecast_day_metrics([pair[0] for pair in pairs])
+                        observed_metrics = _observed_day_metrics([pair[1] for pair in pairs])
+                        if forecast_metrics is None or observed_metrics is None:
+                            continue
+                        cloud_errors = [
+                            abs(pair[0]["cloud_cover_pct"] - pair[1].cloud_cover_pct)
+                            for pair in pairs
+                        ]
+                        samples_by_model[model_id][lead_day].append({
+                            "run_at": run_at.isoformat(),
+                            "target_date": target_day.isoformat(),
+                            "lead_day": lead_day,
+                            "station_id": station.station_id,
+                            "station_name": station.name,
+                            "model_id": model_id,
+                            "forecast_condition": forecast_metrics["condition"],
+                            "forecast_condition_total_cloud_only": forecast_metrics["condition_total_cloud_only"],
+                            "observed_condition": observed_metrics["condition"],
+                            "matched_hours": len(pairs),
+                            "forecast_sunshine_hours": forecast_metrics["sunshine_hours"],
+                            "forecast_mean_cloud_cover_pct": forecast_metrics["mean_cloud_cover_pct"],
+                            "forecast_mean_low_cloud_cover_pct": forecast_metrics["mean_low_cloud_cover_pct"],
+                            "forecast_clear_hours": forecast_metrics["clear_hours"],
+                            "forecast_bright_hours": forecast_metrics["bright_hours"],
+                            "forecast_clear_hours_total_cloud_only": forecast_metrics["clear_hours_total_cloud_only"],
+                            "forecast_bright_hours_total_cloud_only": forecast_metrics["bright_hours_total_cloud_only"],
+                            "observed_mean_cloud_cover_pct": observed_metrics["mean_cloud_cover_pct"],
+                            "cloud_cover_abs_error_pct": round(sum(cloud_errors) / len(cloud_errors), 1),
+                        })
     finally:
         forecast_client.close()
 
-    lead_summaries = {
-        str(lead): _lead_summary(samples_by_lead[lead])
-        for lead in (1, 2, 3)
+    all_samples_by_model = {
+        model_id: [
+            sample
+            for lead in (1, 2, 3)
+            for sample in samples_by_model[model_id][lead]
+        ]
+        for model_id in FORECAST_MODELS
     }
-    all_samples = [
-        sample
-        for lead in (1, 2, 3)
-        for sample in samples_by_lead[lead]
-    ]
-    quality = sample_quality_gate(all_samples)
+    lead_summaries_by_model = {
+        model_id: {
+            str(lead): _lead_summary(samples_by_model[model_id][lead])
+            for lead in (1, 2, 3)
+        }
+        for model_id in FORECAST_MODELS
+    }
+    quality_by_model = {
+        model_id: sample_quality_gate(all_samples_by_model[model_id])
+        for model_id in FORECAST_MODELS
+    }
+    all_samples = all_samples_by_model[FORECAST_MODEL]
+    lead_summaries = lead_summaries_by_model[FORECAST_MODEL]
+    quality = quality_by_model[FORECAST_MODEL]
+    common_cloud_comparison = _common_cloud_model_comparison(samples_by_model)
+    all_solar_samples_by_model = {
+        model_id: [
+            sample
+            for lead in (1, 2, 3)
+            for sample in solar_samples_by_model[model_id][lead]
+        ]
+        for model_id in FORECAST_MODELS
+    }
+    solar_quality_by_model = {
+        model_id: _solar_radiation_quality_gate(all_solar_samples_by_model[model_id])
+        for model_id in FORECAST_MODELS
+    }
+    solar_summaries_by_model = {
+        model_id: {
+            str(lead): _solar_radiation_summary(solar_samples_by_model[model_id][lead])
+            for lead in (1, 2, 3)
+        }
+        for model_id in FORECAST_MODELS
+    }
+    all_solar_samples = all_solar_samples_by_model[FORECAST_MODEL]
+    solar_quality = solar_quality_by_model[FORECAST_MODEL]
+    solar_summaries = solar_summaries_by_model[FORECAST_MODEL]
+    common_model_comparison = _common_solar_model_comparison(solar_samples_by_model)
+    run_count_available_by_model = {
+        model_id: sum(
+            item["model_id"] == model_id and item["status"] == "available"
+            for item in run_statuses
+        )
+        for model_id in FORECAST_MODELS
+    }
     payload = {
         "status": (
             "insufficient_observations" if not all_samples
@@ -846,18 +1401,50 @@ def run_backtest(
         ),
         "generated_at": datetime.now(UTC).isoformat(),
         "forecast_model": FORECAST_MODEL,
-        "forecast_source": "Open-Meteo Single Runs API (archived ECMWF IFS HRES)",
+        "forecast_models_evaluated": list(FORECAST_MODELS),
+        "forecast_source": "Open-Meteo Single Runs API (archived ECMWF model runs)",
         "observation_source": "NOAA NCEI Global Historical Climatology Network hourly (GHCNh)",
         "sample_period": {
             "start_date": min(run_dates).isoformat(),
             "end_date": max(run_dates).isoformat(),
             "run_count_requested": len(run_dates),
-            "run_count_available": sum(1 for item in run_statuses if item["status"] == "available"),
+            "run_count_available": run_count_available_by_model.get(FORECAST_MODEL, 0),
+            "run_count_available_by_model": run_count_available_by_model,
         },
         "stations": [asdict(station) for station in stations],
         "station_count": quality["verified_station_count"],
         "candidate_station_count": len(stations),
         "quality_gates": quality,
+        "quality_gates_by_model": quality_by_model,
+        "lead_days_by_model": lead_summaries_by_model,
+        "common_case_cloud_model_comparison": common_cloud_comparison,
+        "low_cloud_guardrail_sensitivity": _low_cloud_guardrail_sensitivity(all_samples_by_model),
+        "sample_count_by_model": {
+            model_id: len(all_samples_by_model[model_id])
+            for model_id in FORECAST_MODELS
+        },
+        "nasa_power_source": {
+            "provider": "NASA POWER Daily API",
+            "parameter": "ALLSKY_SFC_SW_DWN",
+            "time_standard": "LST",
+            "spatial_resolution_deg": {"latitude": 0.5, "longitude": 0.625},
+            "unit": "MJ/m²/day",
+        },
+        "nasa_power_radiation_quality": solar_quality,
+        "nasa_power_radiation_quality_by_model": solar_quality_by_model,
+        "nasa_power_station_status": nasa_power_status,
+        "nasa_power_radiation_by_lead": solar_summaries,
+        "nasa_power_radiation_by_model": solar_summaries_by_model,
+        "nasa_power_radiation_common_case_comparison": common_model_comparison,
+        "nasa_power_radiation_sample_count": len(all_solar_samples),
+        "nasa_power_radiation_sample_count_by_model": {
+            model_id: len(all_solar_samples_by_model[model_id])
+            for model_id in FORECAST_MODELS
+        },
+        "nasa_power_radiation_samples": all_solar_samples,
+        "nasa_power_radiation_samples_by_model": all_solar_samples_by_model,
+        "nasa_power_temporal_holdout": _temporal_holdout_solar_validation(all_solar_samples_by_model),
+        "samples_by_model": all_samples_by_model,
         "station_diagnostics": station_diagnostics,
         "lead_days": lead_summaries,
         "sample_count": len(all_samples),
@@ -870,12 +1457,18 @@ def run_backtest(
             "positive_class": "sunny 或 mostly_sunny",
             "cloud_mae_method": "先计算每个站点日匹配时次的平均绝对误差，再对站点日等权平均；不代表所有逐小时样本等权。",
             "forecast_cycle_note": "跨越不同 ECMWF IFS 版本的结果暂按总体展示，正式校准必须额外分版本回测。",
-            "cloud_cover": "优先采用 GHCNh sky_condition/sky_cover_summation/sky_cover_layer 观测字段；缺失时回退解析 METAR 原始报文。FEW/SCT/BKN/OVC/VV 转为 oktas 覆盖率区间中点；CAVOK/NSC/NCD 保守记为 26%，不等同于晴空",
+            "solar_radiation_validation": (
+                "NASA POWER AG-community ALLSKY_SFC_SW_DWN daily LST values (MJ/m²/day) are compared with "
+                "the sum of Open-Meteo hourly shortwave_radiation for the corresponding "
+                "Asia/Shanghai local day (W/m² × 0.0036). NASA POWER is a 0.5° satellite/"
+                "reanalysis radiation product, not a direct sunshine-duration station sensor."
+            ),
+            "cloud_cover": "优先采用 GHCNh sky_condition/sky_cover/sky_cover_1..3/sky_cover_summation/sky_cover_layer 观测字段；缺失时回退解析 METAR/SYNOP 原始报文。SYNOP N 字段为斜杠时表示云量未报告，按缺测排除，不视为晴空。FEW/SCT/BKN/OVC/VV 转为 oktas 覆盖率区间中点；CAVOK/NSC/NCD 保守记为 26%，不等同于晴空",
             "limitations": [
                 "GHCNh 站点主要为机场/地面报文站，空间分布稀疏，不能代表整个盆地每个网格。",
                 "METAR 云量是天空状况代理，不是地面日照时数传感器；本报告不能验证 sunshine_duration 的分钟级误差。",
                 "观测缺测、报文类型和站点代表性会影响样本量；不将缺测视为晴天或无降水。",
-                "本轮只评估 ECMWF IFS HRES 单模型站点预报；不能据此校准三个模型的独立概率。",
+                "HRES、IFS025、AIFS025 均使用相同 NOAA 站点观测进行晴好分类评估，并使用相同 NASA POWER 点位/日期比较辐射误差；站点数量少，结果仅作模型筛选依据。",
             ],
             "boundary_source": boundary_metadata.get("source_name"),
             "boundary_caveat": boundary_metadata.get("boundary_caveat"),
@@ -897,7 +1490,7 @@ def main() -> None:
     parser.add_argument("--start-date", type=date.fromisoformat, default=date(2024, 4, 15))
     parser.add_argument("--end-date", type=date.fromisoformat, default=datetime.now(UTC).date() - timedelta(days=14))
     parser.add_argument("--max-runs", type=int, default=16)
-    parser.add_argument("--max-stations", type=int, default=8)
+    parser.add_argument("--max-stations", type=int, default=12)
     parser.add_argument("--cache-dir", type=Path, default=Path(".cache/zhuqing"))
     parser.add_argument("--output", type=Path, default=Path("artifacts/forecast-backtest.json"))
     args = parser.parse_args()

@@ -64,7 +64,7 @@ jobs:
 
 
   real-provider-diagnostic-probe:
-    if: github.ref == 'refs/heads/feature/forecast-quality-v1-1'
+    if: github.ref == 'refs/heads/feature/forecast-quality-v1-1' || github.ref == 'refs/heads/feature/v1-2-synop-verification'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -79,9 +79,9 @@ jobs:
         run: python -m sitegen.probe
 
   full-basin-quality-smoke:
-    if: github.ref == 'refs/heads/feature/forecast-quality-v1-1'
+    if: github.ref == 'refs/heads/feature/forecast-quality-v1-1' || github.ref == 'refs/heads/feature/v1-2-synop-verification'
     runs-on: ubuntu-latest
-    continue-on-error: true
+    continue-on-error: ${{ github.ref != 'refs/heads/feature/v1-2-synop-verification' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
