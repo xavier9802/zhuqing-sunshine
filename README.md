@@ -79,7 +79,7 @@ NEXT_PUBLIC_BASE_PATH=/zhuqing-sunshine npm run build:web
 - 在 Actions 页面手动运行；
 - 每 4 小时在 UTC 分钟 17 尝试自动刷新。
 
-定时任务在 GitHub Actions 不保证准点执行。若所有模型不可用，定时任务失败并保留上次成功发布的网站；页面必须结合其“数据采集时间”和模型时次判断新鲜度。
+每次成功生成的盆地与城市预报汇总另存为 GitHub Actions Artifact，保留14天用于短期核对，不存数据库或重复网格几何。定时任务在 GitHub Actions 不保证准点执行。若所有模型不可用，定时任务失败并保留上次成功发布的网站；页面必须结合其“数据采集时间”和模型时次判断新鲜度。
 
 GitHub Pages 首次发布需要在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**。详见 docs/ARCHITECTURE.md。
 

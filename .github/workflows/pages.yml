@@ -48,6 +48,15 @@ jobs:
             # Initial release can show explicit no-data status, never fake forecasts.
             python -m sitegen.build --mode live
           fi
+      - name: Archive small forecast summary snapshot (14 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-summary-${{ github.run_id }}
+          retention-days: 14
+          path: |
+            apps/web/public/data/status.json
+            apps/web/public/data/overview/*.json
+            apps/web/public/data/cities/*.json
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
       - name: Build GitHub Pages static files
