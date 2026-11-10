@@ -478,14 +478,14 @@ def generate(
                 shutil.rmtree(output / "data" / "city" / model_id, ignore_errors=True)
                 write_json(
                     output / "data" / "overview" / f"{model_id}.json",
-                    empty_overview(now, f"模型预报暂时不可用：{str(exc)[:120]}"),
+                    empty_overview(now, "该模型预报暂时不可用，请查看自动更新状态。"),
                 )
                 write_json(
                     output / "data" / "cities" / f"{model_id}.json",
                     {"status": "initializing", "model": None, "cities": []},
                 )
                 fallback = model_status(model_id)
-                fallback["message"] = str(exc)[:250]
+                fallback["message"] = "模型采集失败，等待下一次自动更新"
                 statuses.append(fallback)
     finally:
         if own_client:

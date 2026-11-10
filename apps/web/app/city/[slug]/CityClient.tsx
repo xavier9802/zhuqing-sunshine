@@ -90,6 +90,7 @@ export default function CityPage() {
           </div>)}
         </div>
       </section>
+      {model?.retrieved_at && Date.now() - Date.parse(model.retrieved_at) > 12 * 3600 * 1000 && <p className="warning-note">该城市的模型快照已超过 12 小时未更新，请谨慎参考。</p>}
       <p className="warning-note">日照时长来自 Open-Meteo 模型预报字段，非地面实测。小时级预报可能包含模型时间分辨率插值，请结合预报批次与实际天气判断。</p>
     </>}
     <footer className="footer">

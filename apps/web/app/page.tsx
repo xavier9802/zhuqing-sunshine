@@ -130,13 +130,18 @@ export default function Home() {
     [overview, selectedTime],
   );
   const maxDaily = Math.max(1, ...((overview?.daily_sunshine_hours || []).map(day => day.sunshine_hours || 0)));
+  const activeModel = dataStatus?.models.find(item => item.model_id === model);
+  const retrievalTime = activeModel?.retrieved_at ? Date.parse(activeModel.retrieved_at) : NaN;
+  const isStale = Number.isFinite(retrievalTime) && Date.now() - retrievalTime > 12 * 3600 * 1000;
+  const liveStatus = isStale ? "degraded" : dataStatus?.status;
+
 
   return (
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="/"><span className="brand-mark"><Sun size={21}/></span><span><b>追晴</b><small>SUNSHINE FORECAST</small></span></a>
         <nav><a className="active" href="#forecast">日照预测</a><a href="#cities">城市观察</a><a href="#method">数据与方法</a></nav>
-        <span className={"status " + (dataStatus?.status === "available" ? "online" : dataStatus?.status === "degraded" ? "degraded" : "offline")}><i/> {dataStatus?.status === "available" ? "模型数据已接入" : dataStatus?.status === "degraded" ? "部分数据可用" : "等待真实数据"}</span>
+        <span className={"status " + (liveStatus === "available" ? "online" : liveStatus === "degraded" ? "degraded" : "offline")}><i/> {isStale ? "预报更新延迟" : liveStatus === "available" ? "模型数据已接入" : liveStatus === "degraded" ? "部分数据可用" : "等待真实数据"}</span>
       </header>
 
       <section className="hero" id="forecast">
@@ -154,6 +159,7 @@ export default function Home() {
 
       {error && <div className="error-note">{error}。请查看 GitHub Actions 最近一次数据更新任务。</div>}
       {loading && <div className="loading-line"/>}
+      {isStale && <div className="warning-note">天气快照超过 12 小时未更新，当前结果可能过期，请以模型初始化时间和天气实况为准。</div>}
 
       <section className="metrics">
         <article className="metric featured"><label><Sun size={15}/> 下一次盆地放晴窗口</label><strong className="value pending">{windowLabel(overview?.next_sunshine_window, overview?.status === "available")}</strong><small className="metric-note">{overview?.next_sunshine_window ? "预计连续有效日照约 " + (overview.next_sunshine_window.expected_sunshine_minutes / 60).toFixed(1) + " 小时" : overview?.status === "available" ? "当前预报周期内未达到放晴判定条件" : "完成真实模型数据采集后生成"}</small></article>
