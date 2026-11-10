@@ -8,7 +8,6 @@ from typing import Any
 
 import httpx
 
-
 NASA_POWER_DAILY_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
 NASA_POWER_PARAMETER = "ALLSKY_SFC_SW_DWN"
 
