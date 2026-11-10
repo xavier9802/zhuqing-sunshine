@@ -1,7 +1,7 @@
 {
   "name": "zhuqing-sunshine",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.2.0",
   "workspaces": ["apps/web"],
   "scripts": {
     "dev:web": "npm run dev --workspace @zhuqing/web",
