@@ -493,12 +493,13 @@ def load_station_year(
             if len(examples) < 3:
                 examples.append({
                     "report": report[:500],
-                    "columns": sorted(
-                        key for key in row
+                    "relevant_fields": {
+                        key: str(value)[:200]
+                        for key, value in row.items()
                         if any(token in _normalise_key(key) for token in (
                             "sky", "cloud", "remarks", "report", "weather", "visibility"
                         ))
-                    ),
+                    },
                 })
         sky_cover = parse_sky_cover_from_row(row)
         if sky_cover is not None and diagnostics is not None:
