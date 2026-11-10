@@ -8,10 +8,10 @@ from sitegen.backtest import (
     parse_observation,
     parse_sky_cover,
     parse_sky_cover_code,
-    parse_synop_precipitation,
-    parse_synop_sky_cover,
     parse_sky_cover_from_row,
     parse_station_catalog,
+    parse_synop_precipitation,
+    parse_synop_sky_cover,
     sample_quality_gate,
     sample_run_dates,
     select_stations,
@@ -181,7 +181,7 @@ def test_parse_fm12_synop_total_cloud_amount() -> None:
 def test_parse_fm12_synop_present_weather() -> None:
     assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 70000 80000") is False
     assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 70000 80000") is False
-    assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 70500 80000") is True
+    assert parse_synop_precipitation("AAXX 15004 57083 42960 43210 10123 20012 30000 40123 50001 60000 75000 80000") is True
 
 
 def test_parse_observation_uses_fm12_cloud_and_weather_groups() -> None:
