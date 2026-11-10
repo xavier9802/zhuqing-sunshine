@@ -58,6 +58,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Compose configuration
         run: docker compose config --quiet
+      - name: Validate Render Blueprint YAML syntax
+        run: ruby -e 'require "yaml"; YAML.load_file("render.yaml")'
       - name: Build all MVP containers
         run: docker compose build --parallel
       - name: Start the containerized MVP
