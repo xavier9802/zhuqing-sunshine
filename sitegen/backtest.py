@@ -86,7 +86,7 @@ def _field(row: dict[str, Any], *names: str) -> str | None:
     return None
 
 
-def _number(value: str | float | int | None) -> float | None:
+def _number(value: str | float | None) -> float | None:
     if value is None:
         return None
     try:
@@ -275,7 +275,7 @@ def _parse_timestamp(row: dict[str, Any]) -> datetime | None:
     raw = _field(row, "DATE", "TIMESTAMP", "DATE_TIME")
     if raw:
         try:
-            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(raw)
             return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
         except ValueError:
             pass
@@ -580,7 +580,7 @@ def run_backtest(
                     run_at=run_at,
                     forecast_days=5,
                 )
-            except Exception as exc:
+            except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
                 LOG.warning("Forecast run %s unavailable: %s", run_at.isoformat(), exc)
                 run_statuses.append({
                     "run_at": run_at.isoformat(),
