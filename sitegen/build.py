@@ -364,7 +364,7 @@ def produce_model(
         "hourly": basin_hourly[:GRID_HOURS],
         "daily_sunshine_hours": aggregate_daily(basin_hourly)[:7],
         "coverage": basin_hourly[0]["sunshine_coverage_pct"],
-        "message": "数值天气模型预报；日照时长按盆地网格实际面积加权，不代表地面实况。",
+        "message": "晴好判断联合总云、低云、日照、降水与能见度诊断；多模型一致性仅作方向参考，不代表地面实况。",
         "model": source,
     }
     write_json(output / "data" / "overview" / f"{model_id}.json", overview)

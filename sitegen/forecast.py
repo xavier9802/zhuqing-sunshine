@@ -409,7 +409,7 @@ def city_daily_summary(samples: list[CityHour]) -> list[dict[str, Any]]:
         visibilities = [row.visibility_m for row in day_rows if row.visibility_m is not None]
         low_visibility_hours = sum(1 for row in day_rows if row.visibility_m is not None and row.visibility_m < 1000)
         rain_hours = sum(1 for row in day_rows if row.precipitation_mm is not None and row.precipitation_mm >= RAIN_HOURLY_MM)
-        clear_hours = sum(1 for row in day_rows if row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS and row.cloud_cover_pct is not None and row.cloud_cover_pct <= CLEAR_TOTAL_CLOUD_MAX and row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct <= CLEAR_LOW_CLOUD_MAX and row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM)
+        clear_hours = sum(1 for row in day_rows if row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS and row.cloud_cover_pct is not None and row.cloud_cover_pct <= CLEAR_TOTAL_CLOUD_MAX and row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct <= CLEAR_LOW_CLOUD_MAX and row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM and (row.visibility_m is None or row.visibility_m >= 1000))
         bright_hours = sum(1 for row in day_rows if row.sunshine_seconds is not None and row.sunshine_seconds >= SUNNY_HOUR_SECONDS and row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct <= BRIGHT_LOW_CLOUD_MAX and row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM and (row.visibility_m is None or row.visibility_m >= 1000))
         mean_cloud = sum(clouds) / len(clouds) if clouds else None
         mean_low = sum(low_clouds) / len(low_clouds) if low_clouds else None
