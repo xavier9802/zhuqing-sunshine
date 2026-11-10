@@ -23,15 +23,9 @@ class ModelSpec:
 
 COMMON_VARIABLES = (
     "sunshine_duration",
-    "shortwave_radiation",
-    "direct_normal_irradiance",
     "cloud_cover",
     "precipitation",
     "temperature_2m",
-    "relative_humidity_2m",
-    "dew_point_2m",
-    "wind_speed_10m",
-    "wind_direction_10m",
 )
 
 MODEL_CATALOG: dict[str, ModelSpec] = {
@@ -41,7 +35,7 @@ MODEL_CATALOG: dict[str, ModelSpec] = {
         spatial_resolution_km=9.0,
         update_interval_seconds=6 * 3600,
         native_steps=((90, 3600), (144, 3 * 3600), (360, 6 * 3600)),
-        hourly_variables=COMMON_VARIABLES + ("visibility",),
+        hourly_variables=COMMON_VARIABLES,
         dni_method="native_direct_radiation_with_solar_geometry",
     ),
     "ecmwf_ifs025": ModelSpec(
