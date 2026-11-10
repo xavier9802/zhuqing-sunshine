@@ -46,7 +46,7 @@ def test_parse_station_catalog_csv() -> None:
 
 
 def test_parse_station_catalog_fixed_width() -> None:
-    line = f"{'CHM00056294':<11} {30.667:8.3f} {104.017:9.3f} {508.0:6.1f} {'':2}{'CHENGDU':<30}{'':9}{'56294':<5}{'ZUUU':<4}"
+    line = f"{'CHM00056294':<11} {30.667:8.3f} {104.017:9.3f} {508.0:6.1f} {'':4}{'CHENGDU':<30}{'':9}{'56294':<5} {'ZUUU':<4}"
     rows = parse_station_catalog(line)
     assert len(rows) == 1
     assert rows[0].name == "CHENGDU"
