@@ -84,6 +84,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://zhuqing:test-password@localhost:5432/zhuqing
       DATA_DIR: ${{ github.workspace }}/.smoke/data
+      SUMMARY_PATH: ${{ github.workspace }}/.smoke/geography-import-summary.json
       GRID_SPACING_DEGREES: "0.25"
     steps:
       - uses: actions/checkout@v4
@@ -95,18 +96,19 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Import live USGS basin and GeoNames city data
         run: |
-          mkdir -p .smoke
-          python -m app.main import-geography > .smoke/geography-import-summary.json
-          cat .smoke/geography-import-summary.json
+          mkdir -p "$GITHUB_WORKSPACE/.smoke"
+          python -m app.main import-geography > "$SUMMARY_PATH"
+          cat "$SUMMARY_PATH"
       - name: Assert imported geometry and city coverage
         run: |
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
           from shapely.geometry import shape
 
-          root = Path(".smoke/data/geography")
-          summary = json.loads(Path(".smoke/geography-import-summary.json").read_text())
+          root = Path(os.environ["DATA_DIR"]) / "geography"
+          summary = json.loads(Path(os.environ["SUMMARY_PATH"]).read_text())
           boundary = json.loads((root / "sichuan_basin_boundary.geojson").read_text())
           grid = json.loads((root / "grid_cells.geojson").read_text())
           cities = json.loads((root / "cities.json").read_text())
