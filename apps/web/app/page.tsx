@@ -179,7 +179,7 @@ export default function Home() {
           <div className="data-source"><span className="dot"/> Open-Meteo · {overview?.model?.model_name || "等待模型批次"}</div>
         </div>
         <div className="hour-strip">
-          {(overview?.hourly || []).slice(0, 72).map((hour, index) => (
+          {(overview?.hourly || []).slice(0, 72).map(hour => (
             <button type="button" key={hour.valid_at} className={"hour-chip " + (selectedHour?.valid_at === hour.valid_at ? "selected" : "")} onClick={() => setSelectedTime(hour.valid_at)}>
               <b>{hourLabel(hour.valid_at)}</b>
               <span>日照覆盖</span>
