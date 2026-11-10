@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any, Iterable
-import time
+from typing import Any
 
 import httpx
 
@@ -61,7 +62,7 @@ def parse_model_metadata(model_id: str, payload: dict[str, Any]) -> ModelMetadat
 
 
 def parse_valid_time(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
@@ -141,7 +142,7 @@ class OpenMeteoClient:
         url = f"{self.metadata_base_url}/data/{model_id}/static/meta.json"
         payload = self._get_json(url)
         if not isinstance(payload, dict):
-            raise ValueError(f"Invalid metadata response for {model_id}")
+            raise TypeError(f"Invalid metadata response for {model_id}")
         return parse_model_metadata(model_id, payload)
 
     def fetch_forecast_batch(
@@ -183,7 +184,7 @@ class OpenMeteoClient:
         for index, item in enumerate(items):
             hourly = item.get("hourly")
             if not isinstance(hourly, dict) or not isinstance(hourly.get("time"), list):
-                raise ValueError(f"Missing hourly time series at batch index {index}")
+                raise TypeError(f"Missing hourly time series at batch index {index}")
         return items
 
 

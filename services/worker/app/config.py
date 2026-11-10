@@ -21,7 +21,7 @@ class Settings:
     model_ids: tuple[str, ...]
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         usage = os.getenv("OPEN_METEO_USAGE", "non_commercial").strip().lower()
         if usage not in {"non_commercial", "commercial"}:
             raise ValueError("OPEN_METEO_USAGE must be non_commercial or commercial")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import json
+from dataclasses import replace
 
 from app.config import Settings
 from app.db import create_schema, make_engine, make_session_factory

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.catalog import get_model_spec
 from app.models import (
@@ -306,7 +308,7 @@ def ingest_all(
                     batch_size,
                 )
             )
-        except Exception as exc:
+        except (ValueError, RuntimeError, httpx.HTTPError, SQLAlchemyError, OSError) as exc:
             errors.append(f"{model_id}: {exc}")
 
     if errors:

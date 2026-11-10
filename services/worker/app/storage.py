@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
+from pathlib import Path
 
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
