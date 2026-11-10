@@ -49,7 +49,7 @@ services:
   worker:
     profiles: ["jobs"]
     restart: unless-stopped
-    command: ["python", "-m", "app.main", "ingest-loop", "--interval-minutes", "60"]
+    command: ["ingest-loop", "--interval-minutes", "60"]
     build:
       context: ./services/worker
     container_name: zhuqing-worker
