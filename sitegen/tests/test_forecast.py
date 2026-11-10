@@ -59,6 +59,7 @@ def test_city_window_uses_two_consecutive_effective_sunshine_hours() -> None:
     rows = [
         CityHour(t, 2000, 30, 0, 18, False),
         CityHour(t + timedelta(hours=1), 2400, 20, 0, 19, False),
+        CityHour(t + timedelta(hours=2), 2200, 25, 0, 20, False),
     ]
     window = find_city_sunshine_window(rows)
     assert window is not None

@@ -100,8 +100,6 @@ def aggregate_basin_hours(samples: list[GridHour]) -> list[dict[str, Any]]:
         valid = [row for row in rows if row.sunshine_seconds is not None and row.area_km2 > 0]
         valid_area = sum(row.area_km2 for row in valid)
         completeness = valid_area / total_area * 100 if total_area else 0.0
-        cloud_valid = [row for row in rows if row.cloud_cover_pct is not None and row.area_km2 > 0]
-        low_valid = [row for row in rows if row.low_cloud_cover_pct is not None and row.area_km2 > 0]
         condition_valid = [
             row for row in rows
             if row.cloud_cover_pct is not None
@@ -110,7 +108,6 @@ def aggregate_basin_hours(samples: list[GridHour]) -> list[dict[str, Any]]:
             and row.area_km2 > 0
         ]
         diagnostic_area = sum(row.area_km2 for row in condition_valid)
-        low_area = sum(row.area_km2 for row in low_valid)
         rain_valid = [row for row in rows if row.precipitation_mm is not None and row.area_km2 > 0]
         rain_area = sum(row.area_km2 for row in rain_valid)
 
@@ -315,6 +312,7 @@ def find_basin_sunshine_window(hours: list[dict[str, Any]]) -> dict[str, Any] | 
         and row["precipitation_mm"] < RAIN_HOURLY_MM
         and row.get("data_completeness_pct", 0) >= MIN_DATA_COMPLETENESS_PCT
         and row.get("cloud_diagnostic_completeness_pct", 0) >= MIN_DATA_COMPLETENESS_PCT
+        and row.get("interpolated_area_pct", 0) <= 50
     ]
     candidates.sort(key=lambda row: row["valid_at"])
     streak: list[dict[str, Any]] = []
