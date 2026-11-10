@@ -8,7 +8,7 @@ import logging
 import re
 from bisect import bisect_left
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -63,6 +63,7 @@ class Station:
     elevation_m: float | None
     wmo_id: str | None
     icao: str | None
+    available_years: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -170,8 +171,11 @@ def parse_observation(
     report: str,
     visibility_km: float | None,
     precipitation_mm: float | None,
+    sky_cover_pct: float | None = None,
 ) -> Observation | None:
     cloud = parse_sky_cover(report)
+    if cloud is None:
+        cloud = sky_cover_pct
     if cloud is None:
         return None
     visibility_m = visibility_km * 1000 if visibility_km is not None else None
@@ -189,6 +193,93 @@ def parse_observation(
         visibility_m=visibility_m,
         precipitation=precipitation,
     )
+
+
+
+def parse_sky_cover_code(value: str | float | int | None) -> float | None:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if not text or text in {"-9999", "-9999.0", "99", "999", "9999"}:
+        return None
+    # Some GHCNh source streams encode total/opaque/lowest cover as a slash-
+    # separated triplet; the first component is total sky cover.
+    first = re.split(r"[/, ]+", text)[0]
+    category = parse_sky_cover(first)
+    if category is not None:
+        return category
+    try:
+        code = float(first)
+    except ValueError:
+        return None
+    if 0 <= code <= 8:
+        return round(code / 8 * 100, 1)
+    if code in {9, 10}:
+        # 9 = obscured sky; 10 = partial obscuration. Neither is safe to
+        # interpret as a clear-sky observation.
+        return 100.0
+    if 10 < code <= 100:
+        return code
+    return None
+
+
+def parse_sky_cover_from_row(row: dict[str, Any]) -> float | None:
+    overall = parse_sky_cover_code(_field(row, "sky_condition"))
+    if overall is not None:
+        return overall
+    summations = [
+        parse_sky_cover_code(_field(row, f"sky_cover_summation_{index}"))
+        for index in range(1, 5)
+    ]
+    available = [value for value in summations if value is not None]
+    if available:
+        return max(available)
+    layers = [
+        parse_sky_cover_code(_field(row, f"sky_cover_layer_{index}"))
+        for index in range(1, 5)
+    ]
+    available = [value for value in layers if value is not None]
+    return max(available) if available else None
+
+
+def stations_near_boundary(stations: list[Station], boundary: Any) -> list[Station]:
+    buffered = boundary.buffer(0.5)
+    return [
+        station for station in stations
+        if buffered.covers(Point(station.longitude, station.latitude))
+    ]
+
+
+def probe_station_availability(
+    client: httpx.Client,
+    stations: list[Station],
+    years: list[int],
+) -> list[Station]:
+    available: list[Station] = []
+    for station in stations:
+        station_years: list[int] = []
+        for year in years:
+            url = GHCNH_YEAR_URL.format(year=year, station_id=station.station_id)
+            try:
+                response = client.head(url)
+                if response.status_code in {405, 501}:
+                    response = client.get(url, headers={"Range": "bytes=0-0"})
+                if response.status_code in {200, 206}:
+                    station_years.append(year)
+                elif response.status_code != 404:
+                    LOG.warning(
+                        "Station availability probe %s/%s returned HTTP %s",
+                        station.station_id, year, response.status_code,
+                    )
+            except httpx.HTTPError as exc:
+                LOG.warning("Station availability probe failed for %s/%s: %s", station.station_id, year, exc)
+        if station_years:
+            available.append(replace(station, available_years=tuple(station_years)))
+    LOG.info(
+        "NOAA GHCNh station availability: %s/%s stations have data in target years %s",
+        len(available), len(stations), years,
+    )
+    return available
 
 
 def select_stations(stations: list[Station], boundary: Any, max_stations: int) -> list[Station]:
@@ -213,7 +304,12 @@ def select_stations(stations: list[Station], boundary: Any, max_stations: int) -
 
     candidates = sorted(
         candidates,
-        key=lambda item: (not bool(item.icao), not bool(item.wmo_id), item.station_id),
+        key=lambda item: (
+            -len(item.available_years),
+            not bool(item.icao),
+            not bool(item.wmo_id),
+            item.station_id,
+        ),
     )
     selected: list[Station] = []
     remaining = candidates.copy()
@@ -300,6 +396,7 @@ def load_station_year(
     year: int,
     cache_dir: Path,
     target_dates: set[date],
+    diagnostics: dict[str, int] | None = None,
 ) -> list[Observation]:
     cache_path = cache_dir / "ghcnh" / str(year) / f"{station.station_id}.psv"
     if cache_path.is_file():
@@ -318,19 +415,29 @@ def load_station_year(
     observations: dict[datetime, Observation] = {}
     reader = csv.DictReader(io.StringIO(content), delimiter="|")
     for row in reader:
+        if diagnostics is not None:
+            diagnostics["rows_read"] = diagnostics.get("rows_read", 0) + 1
         valid_at = _parse_timestamp(row)
         if valid_at is None or valid_at.astimezone(TIMEZONE).date() not in target_dates:
             continue
+        if diagnostics is not None:
+            diagnostics["rows_in_target_dates"] = diagnostics.get("rows_in_target_dates", 0) + 1
         report = _field(row, "REM", "REMARKS") or ""
-        if not report:
-            continue
+        if report and diagnostics is not None:
+            diagnostics["rows_with_raw_report"] = diagnostics.get("rows_with_raw_report", 0) + 1
+        sky_cover = parse_sky_cover_from_row(row)
+        if sky_cover is not None and diagnostics is not None:
+            diagnostics["rows_with_sky_cover_fields"] = diagnostics.get("rows_with_sky_cover_fields", 0) + 1
         observation = parse_observation(
             valid_at,
             report,
             _number(_field(row, "visibility")),
             _number(_field(row, "precipitation")),
+            sky_cover_pct=sky_cover,
         )
         if observation is not None:
+            if diagnostics is not None:
+                diagnostics["usable_observations"] = diagnostics.get("usable_observations", 0) + 1
             observations[valid_at] = observation
     return sorted(observations.values(), key=lambda item: item.valid_at)
 
@@ -528,8 +635,6 @@ def run_backtest(
             station_catalog = parse_station_catalog(response.text)
         if not station_catalog:
             raise RuntimeError("NOAA GHCNh station list returned no parsable stations")
-        stations = select_stations(station_catalog, boundary, max_stations)
-
         target_dates = {
             (
                 datetime.combine(run_day, datetime.min.time(), tzinfo=UTC)
@@ -539,17 +644,32 @@ def run_backtest(
             for lead in (1, 2, 3)
         }
         years = sorted({day.year for day in target_dates})
+        regional_candidates = stations_near_boundary(station_catalog, boundary)
+        available_candidates = probe_station_availability(
+            station_http, regional_candidates, years
+        )
+        if not available_candidates:
+            raise RuntimeError(
+                f"No NOAA GHCNh station-year files found in the region for {years}"
+            )
+        stations = select_stations(available_candidates, boundary, max_stations)
         station_observations: dict[str, list[Observation]] = {}
+        station_diagnostics: dict[str, dict[str, int]] = {}
         for station in stations:
             records: list[Observation] = []
-            for year in years:
+            diagnostics: dict[str, int] = {}
+            for year in station.available_years:
                 records.extend(
-                    load_station_year(station_http, station, year, cache_dir, target_dates)
+                    load_station_year(
+                        station_http, station, year, cache_dir, target_dates, diagnostics
+                    )
                 )
             unique = {item.valid_at: item for item in records}
             station_observations[station.station_id] = sorted(
                 unique.values(), key=lambda item: item.valid_at
             )
+            diagnostics["unique_usable_observations"] = len(unique)
+            station_diagnostics[station.station_id] = diagnostics
     finally:
         station_http.close()
 
@@ -675,6 +795,7 @@ def run_backtest(
         },
         "stations": [asdict(station) for station in stations],
         "station_count": len(stations),
+        "station_diagnostics": station_diagnostics,
         "lead_days": lead_summaries,
         "sample_count": len(all_samples),
         "samples": all_samples,
@@ -684,7 +805,7 @@ def run_backtest(
             "lead_days": [1, 2, 3],
             "matching": "forecast valid time 与 NOAA 观测时间最近邻匹配，容差 35 分钟；每日至少 4 个匹配小时",
             "positive_class": "sunny 或 mostly_sunny",
-            "cloud_cover": "METAR FEW/SCT/BKN/OVC/VV 转为 oktas 覆盖率区间中点；CAVOK/NSC/NCD 保守记为 26%，不等同于晴空",
+            "cloud_cover": "优先采用 GHCNh sky_condition/sky_cover_summation/sky_cover_layer 观测字段；缺失时回退解析 METAR 原始报文。FEW/SCT/BKN/OVC/VV 转为 oktas 覆盖率区间中点；CAVOK/NSC/NCD 保守记为 26%，不等同于晴空",
             "limitations": [
                 "GHCNh 站点主要为机场/地面报文站，空间分布稀疏，不能代表整个盆地每个网格。",
                 "METAR 云量是天空状况代理，不是地面日照时数传感器；本报告不能验证 sunshine_duration 的分钟级误差。",
