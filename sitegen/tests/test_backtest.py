@@ -8,6 +8,7 @@ from sitegen.backtest import (
     _binary_metrics,
     _common_cloud_model_comparison,
     _common_solar_model_comparison,
+    _low_cloud_guardrail_sensitivity,
     _temporal_holdout_solar_validation,
     parse_observation,
     parse_sky_cover,
@@ -236,6 +237,33 @@ def test_common_cloud_model_comparison_uses_identical_cases() -> None:
     })
     assert result["common_case_count"] == 1
     assert result["by_model"]["ecmwf_ifs"]["1"]["station_days"] == 1
+
+
+def test_low_cloud_guardrail_sensitivity_is_holdout_only() -> None:
+    rows = [
+        {
+            "run_at": "2026-06-15T00:00:00+00:00",
+            "lead_day": 1,
+            "forecast_condition": "cloudy",
+            "forecast_condition_total_cloud_only": "sunny",
+            "observed_condition": "sunny",
+        },
+        {
+            "run_at": "2026-06-15T00:00:00+00:00",
+            "lead_day": 1,
+            "forecast_condition": "sunny",
+            "forecast_condition_total_cloud_only": "sunny",
+            "observed_condition": "sunny",
+        },
+    ]
+    result = _low_cloud_guardrail_sensitivity({"ecmwf_ifs": rows})
+    lead = result["by_model"]["ecmwf_ifs"]["1"]
+    assert result["holdout_year"] == 2026
+    assert lead["holdout_station_days"] == 2
+    assert lead["baseline_low_cloud_guardrail"]["recall_pct"] == 50
+    assert lead["counterfactual_total_cloud_only"]["recall_pct"] == 100
+    assert lead["sufficient_for_threshold_review"] is False
+    assert result["production_rule_changed"] is False
 
 
 def test_temporal_holdout_solar_validation_uses_prior_year_only() -> None:

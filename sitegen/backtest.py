@@ -606,6 +606,30 @@ def _forecast_day_metrics(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     rain_hours = sum(1 for row in valid if row["precipitation_mm"] >= 0.1)
     mean_cloud = sum(row["cloud_cover_pct"] for row in valid) / len(valid)
     mean_low = sum(row["low_cloud_cover_pct"] for row in valid) / len(valid)
+    # Diagnostic counterfactual: classify using total-cloud observations only,
+    # removing the low-cloud guardrail to measure how much it suppresses recall.
+    clear_hours_total_cloud_only = sum(
+        1 for row in valid
+        if row["sunshine_seconds"] >= 1800
+        and row["cloud_cover_pct"] <= 25
+        and row["precipitation_mm"] < 0.1
+        and (row["visibility_m"] is None or row["visibility_m"] >= 1000)
+    )
+    bright_hours_total_cloud_only = sum(
+        1 for row in valid
+        if row["sunshine_seconds"] >= 1800
+        and row["cloud_cover_pct"] <= 50
+        and row["precipitation_mm"] < 0.1
+        and (row["visibility_m"] is None or row["visibility_m"] >= 1000)
+    )
+    condition_total_cloud_only = _classify_day(
+        sunshine_hours=sunshine_hours,
+        mean_cloud=mean_cloud,
+        mean_low_cloud=None,
+        clear_hours=clear_hours_total_cloud_only,
+        bright_hours=bright_hours_total_cloud_only,
+        rain_hours=rain_hours,
+    )
     return {
         "condition": _classify_day(
             sunshine_hours=sunshine_hours,
@@ -615,10 +639,14 @@ def _forecast_day_metrics(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
             bright_hours=bright_hours,
             rain_hours=rain_hours,
         ),
+        "condition_total_cloud_only": condition_total_cloud_only,
         "sunshine_hours": round(sunshine_hours, 2),
         "mean_cloud_cover_pct": round(mean_cloud, 1),
+        "mean_low_cloud_cover_pct": round(mean_low, 1),
         "clear_hours": clear_hours,
         "bright_hours": bright_hours,
+        "clear_hours_total_cloud_only": clear_hours_total_cloud_only,
+        "bright_hours_total_cloud_only": bright_hours_total_cloud_only,
         "rain_hours": rain_hours,
         "matched_hours": len(valid),
     }
@@ -713,6 +741,66 @@ def _lead_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     )
     result["station_day_cloud_pairs"] = len(cloud_errors)
     return result
+
+
+def _low_cloud_guardrail_sensitivity(
+    samples_by_model: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    all_samples = [sample for samples in samples_by_model.values() for sample in samples]
+    years = sorted({int(sample["run_at"][:4]) for sample in all_samples})
+    if not years:
+        return {"status": "no_samples", "holdout_year": None, "by_model": {}, "production_rule_changed": False}
+    holdout_year = years[-1]
+    by_model: dict[str, Any] = {}
+    for model_id, samples in samples_by_model.items():
+        by_lead: dict[str, Any] = {}
+        for lead in (1, 2, 3):
+            holdout = [
+                sample for sample in samples
+                if sample["lead_day"] == lead and int(sample["run_at"][:4]) == holdout_year
+            ]
+            baseline = _binary_metrics([
+                {
+                    "forecast_condition": sample["forecast_condition"],
+                    "observed_condition": sample["observed_condition"],
+                }
+                for sample in holdout
+            ])
+            total_cloud_only = _binary_metrics([
+                {
+                    "forecast_condition": sample["forecast_condition_total_cloud_only"],
+                    "observed_condition": sample["observed_condition"],
+                }
+                for sample in holdout
+            ])
+            by_lead[str(lead)] = {
+                "holdout_station_days": len(holdout),
+                "baseline_low_cloud_guardrail": baseline,
+                "counterfactual_total_cloud_only": total_cloud_only,
+                "recall_delta_percentage_points": (
+                    round(total_cloud_only["recall_pct"] - baseline["recall_pct"], 1)
+                    if total_cloud_only["recall_pct"] is not None and baseline["recall_pct"] is not None
+                    else None
+                ),
+                "precision_delta_percentage_points": (
+                    round(total_cloud_only["precision_pct"] - baseline["precision_pct"], 1)
+                    if total_cloud_only["precision_pct"] is not None and baseline["precision_pct"] is not None
+                    else None
+                ),
+                "sufficient_for_threshold_review": len(holdout) >= 50,
+            }
+        by_model[model_id] = by_lead
+    return {
+        "status": "exploratory_sensitivity_only",
+        "holdout_year": holdout_year,
+        "by_model": by_model,
+        "production_rule_changed": False,
+        "note": (
+            "对照组仅移除低云约束，仍使用总云量、日照时长和降水条件。"
+            "这是对低云护栏影响的反事实敏感性分析，不是独立日照实测；"
+            "每个提前量留出样本少于50时，不足以据此修改生产阈值。"
+        ),
+    }
 
 
 def _solar_radiation_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1236,10 +1324,16 @@ def run_backtest(
                             "station_name": station.name,
                             "model_id": model_id,
                             "forecast_condition": forecast_metrics["condition"],
+                            "forecast_condition_total_cloud_only": forecast_metrics["condition_total_cloud_only"],
                             "observed_condition": observed_metrics["condition"],
                             "matched_hours": len(pairs),
                             "forecast_sunshine_hours": forecast_metrics["sunshine_hours"],
                             "forecast_mean_cloud_cover_pct": forecast_metrics["mean_cloud_cover_pct"],
+                            "forecast_mean_low_cloud_cover_pct": forecast_metrics["mean_low_cloud_cover_pct"],
+                            "forecast_clear_hours": forecast_metrics["clear_hours"],
+                            "forecast_bright_hours": forecast_metrics["bright_hours"],
+                            "forecast_clear_hours_total_cloud_only": forecast_metrics["clear_hours_total_cloud_only"],
+                            "forecast_bright_hours_total_cloud_only": forecast_metrics["bright_hours_total_cloud_only"],
                             "observed_mean_cloud_cover_pct": observed_metrics["mean_cloud_cover_pct"],
                             "cloud_cover_abs_error_pct": round(sum(cloud_errors) / len(cloud_errors), 1),
                         })
@@ -1324,6 +1418,7 @@ def run_backtest(
         "quality_gates_by_model": quality_by_model,
         "lead_days_by_model": lead_summaries_by_model,
         "common_case_cloud_model_comparison": common_cloud_comparison,
+        "low_cloud_guardrail_sensitivity": _low_cloud_guardrail_sensitivity(all_samples_by_model),
         "sample_count_by_model": {
             model_id: len(all_samples_by_model[model_id])
             for model_id in FORECAST_MODELS
