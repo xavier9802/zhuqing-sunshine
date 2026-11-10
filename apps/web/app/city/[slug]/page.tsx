@@ -69,5 +69,14 @@ export default function CityPage() {
       </section>
       <p className="warning-note">日照时长来自 Open-Meteo 模型预报字段，非地面实测。小时级预报可能包含模型时间分辨率插值，请结合预报批次与实际天气判断。</p>
     </>}
+    <footer className="footer">
+        <span>追晴 SUNSHINE FORECAST</span>
+        <span className="footer-attribution">
+          气象数据 <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo.com</a> ·
+          城市数据 <a href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a>（CC BY 4.0）·
+          盆地边界 <a href="https://pubs.usgs.gov/of/2000/of00-047/" target="_blank" rel="noreferrer">USGS OFR 00-047</a>
+        </span>
+        <span>日照指标由追晴基于模型预报计算，尚未完成地面站点校准</span>
+      </footer>
   </main>;
 }

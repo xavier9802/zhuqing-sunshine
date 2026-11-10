@@ -11,7 +11,7 @@
 
 ## M1 — Geography and weather ingestion
 - [x] Identify a traceable initial Sichuan Basin structural-sedimentary boundary source.
-- [x] Implement boundary download, CRS validation and reprojection; refuse missing CRS metadata.
+- [x] Implement boundary download and reprojection when a .prj exists; for this source's missing .prj, use the USGS-documented decimal-degree coordinates with an explicitly provisional WGS84 display assumption and provenance caveat.
 - [x] Implement a configurable 0.25° grid clipped to the basin with equal-area cell weights.
 - [x] Implement the 14-city GeoNames import with province matching and source attribution.
 - [x] Validate ECMWF model IDs against the current Open-Meteo API specification.
@@ -20,9 +20,9 @@
 - [x] Add multi-location request batching, retries, timeout and 429 handling.
 - [x] Persist raw payloads, checksums, normalized hourly data and provider-resolved grid coordinates.
 - [x] Add worker tests and CI.
-- [ ] Execute geography import against the live source datasets in the deployment environment.
-- [ ] Execute a real model ingestion after the correct Open-Meteo usage plan and credentials are configured.
-- [ ] Verify the returned city count, grid-cell count, data freshness and model-variable availability.
+- [x] Execute a live USGS + GeoNames geography import in PostGIS CI; verified 14 cities, 358 grid cells and valid geometries.
+- [ ] Execute the first forecast ingestion in the deployment environment after selecting the correct Open-Meteo usage plan.
+- [ ] Verify model freshness and all requested model variables against a live forecast response.
 
 ## M2 — Sunshine calculation
 - [x] Normalize sunshine duration to minutes for product calculations.
@@ -47,7 +47,9 @@
 - [ ] Document verification methodology.
 
 ## M5 — Release readiness
-- [ ] Review data licensing and attribution.
+- [x] Add Open-Meteo, GeoNames, USGS and OpenStreetMap source attribution to the product UI.
+- [x] Document Open-Meteo non-commercial vs commercial API usage requirements.
+- [ ] Review final deployment data licensing and attribution.
 - [ ] Confirm meteorological information service requirements.
 - [ ] Add monitoring, backups and operational alerts.
 - [ ] Complete mobile and accessibility checks.

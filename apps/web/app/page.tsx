@@ -217,7 +217,15 @@ export default function Home() {
 
       <section className="method" id="method"><span><Database size={19}/></span><div><b>让每一次预测都有据可查</b><p>{overview?.model ? "当前展示 " + overview.model.model_name + "，初始化时间 " + formatTime(overview.model.model_run_at) + "，采集时间 " + formatTime(overview.model.retrieved_at) + "。" : "追晴将记录模型来源、预报批次、有效时间与历史误差，不用未经验证的概率制造确定性。"}</p></div><small>{dataStatus?.status === "available" ? "DATA CONNECTED" : "DATA INITIALIZING"}</small></section>
       <div className="warning-note">判定口径：单个网格小时内预计有效日照不少于 30 分钟，视为该网格出现有效日照；盆地放晴窗口要求连续至少 2 小时、有效日照覆盖率达到 50%，且数据完整度不低于 80%。这是产品展示口径，不是气象部门对“晴天”的官方定义。模型预报不等于地面实况，尚未完成站点验证前不展示准确率或概率。</div>
-      <footer className="footer"><span>追晴 SUNSHINE FORECAST</span><span>数据源 Open-Meteo · GeoNames · USGS</span></footer>
+      <footer className="footer">
+        <span>追晴 SUNSHINE FORECAST</span>
+        <span className="footer-attribution">
+          气象数据 <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo.com</a> ·
+          城市数据 <a href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a>（CC BY 4.0）·
+          盆地边界 <a href="https://pubs.usgs.gov/of/2000/of00-047/" target="_blank" rel="noreferrer">USGS OFR 00-047</a>
+        </span>
+        <span>日照指标由追晴基于模型预报计算，尚未完成地面站点校准</span>
+      </footer>
     </main>
   );
 }
