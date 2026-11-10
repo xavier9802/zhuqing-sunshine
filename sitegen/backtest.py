@@ -808,6 +808,49 @@ def _common_solar_model_comparison(
     }
 
 
+def _common_cloud_model_comparison(
+    samples_by_model: dict[str, dict[int, list[dict[str, Any]]]],
+) -> dict[str, Any]:
+    indexes = {
+        model_id: {
+            (sample["station_id"], sample["target_date"], sample["lead_day"]): sample
+            for lead_samples in lead_map.values()
+            for sample in lead_samples
+        }
+        for model_id, lead_map in samples_by_model.items()
+    }
+    available_models = [model_id for model_id, index in indexes.items() if index]
+    if len(available_models) < 2:
+        return {
+            "common_case_count": 0,
+            "models": available_models,
+            "by_model": {},
+            "note": "Fewer than two models have comparable NOAA cloud-condition samples.",
+        }
+    common_keys = set.intersection(
+        *(set(indexes[model_id]) for model_id in available_models)
+    )
+    by_model: dict[str, Any] = {}
+    for model_id in available_models:
+        by_model[model_id] = {
+            str(lead): _lead_summary([
+                indexes[model_id][key]
+                for key in common_keys
+                if key[2] == lead
+            ])
+            for lead in (1, 2, 3)
+        }
+    return {
+        "common_case_count": len(common_keys),
+        "models": available_models,
+        "by_model": by_model,
+        "note": (
+            "Only identical NOAA station, target date, and lead-time cases are compared "
+            "across models; this is a small station-based proxy evaluation."
+        ),
+    }
+
+
 def sample_quality_gate(samples: list[dict[str, Any]]) -> dict[str, Any]:
     verified_stations = {row["station_id"] for row in samples}
     months = {int(row["target_date"][5:7]) for row in samples}
@@ -946,7 +989,9 @@ def run_backtest(
         )
         for index, station in enumerate(stations)
     ]
-    samples_by_lead: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    samples_by_model: dict[str, dict[int, list[dict[str, Any]]]] = {
+        model_id: defaultdict(list) for model_id in FORECAST_MODELS
+    }
     solar_samples_by_model: dict[str, dict[int, list[dict[str, Any]]]] = {
         model_id: defaultdict(list) for model_id in FORECAST_MODELS
     }
@@ -1036,69 +1081,68 @@ def run_backtest(
                             "matched_radiation_hours": len(forecast_radiation_hours),
                         })
 
-            # NOAA cloud-condition verification remains on the HRES baseline.
-            forecast_items = model_forecasts.get(FORECAST_MODEL)
-            if forecast_items is None:
-                continue
-            for station, item in zip(stations, forecast_items, strict=True):
-                hourly = item.get("hourly", {})
-                time_values = hourly.get("time", [])
-                station_obs = station_observations.get(station.station_id, [])
-                obs_times = [row.valid_at for row in station_obs]
-                for lead_day in (1, 2, 3):
-                    target_day = (
-                        run_at.astimezone(TIMEZONE).date()
-                        + timedelta(days=lead_day)
-                    )
-                    pairs: list[tuple[dict[str, Any], Observation]] = []
-                    for index, stamp in enumerate(time_values):
-                        valid_at = parse_valid_time(stamp)
-                        local_time = valid_at.astimezone(TIMEZONE)
-                        if local_time.date() != target_day or local_time.hour not in DAY_HOURS:
+            # Compare all model condition labels against the same NOAA station observations.
+            for model_id, forecast_items in model_forecasts.items():
+                for station, item in zip(stations, forecast_items, strict=True):
+                    hourly = item.get("hourly", {})
+                    time_values = hourly.get("time", [])
+                    station_obs = station_observations.get(station.station_id, [])
+                    obs_times = [row.valid_at for row in station_obs]
+                    for lead_day in (1, 2, 3):
+                        target_day = (
+                            run_at.astimezone(TIMEZONE).date()
+                            + timedelta(days=lead_day)
+                        )
+                        pairs: list[tuple[dict[str, Any], Observation]] = []
+                        for index, stamp in enumerate(time_values):
+                            valid_at = parse_valid_time(stamp)
+                            local_time = valid_at.astimezone(TIMEZONE)
+                            if local_time.date() != target_day or local_time.hour not in DAY_HOURS:
+                                continue
+                            forecast_row = {
+                                "valid_at": valid_at,
+                                "sunshine_seconds": _forecast_number(hourly, "sunshine_duration", index),
+                                "cloud_cover_pct": _forecast_number(hourly, "cloud_cover", index),
+                                "low_cloud_cover_pct": _forecast_number(hourly, "cloud_cover_low", index),
+                                "precipitation_mm": _forecast_number(hourly, "precipitation", index),
+                                "visibility_m": _forecast_number(hourly, "visibility", index),
+                            }
+                            if any(
+                                forecast_row[key] is None
+                                for key in (
+                                    "sunshine_seconds", "cloud_cover_pct",
+                                    "low_cloud_cover_pct", "precipitation_mm",
+                                )
+                            ):
+                                continue
+                            observation = nearest_observation(station_obs, obs_times, valid_at)
+                            if observation is not None:
+                                pairs.append((forecast_row, observation))
+                        if len(pairs) < MIN_MATCHED_HOURS:
                             continue
-                        forecast_row = {
-                            "valid_at": valid_at,
-                            "sunshine_seconds": _forecast_number(hourly, "sunshine_duration", index),
-                            "cloud_cover_pct": _forecast_number(hourly, "cloud_cover", index),
-                            "low_cloud_cover_pct": _forecast_number(hourly, "cloud_cover_low", index),
-                            "precipitation_mm": _forecast_number(hourly, "precipitation", index),
-                            "visibility_m": _forecast_number(hourly, "visibility", index),
-                        }
-                        if any(
-                            forecast_row[key] is None
-                            for key in (
-                                "sunshine_seconds", "cloud_cover_pct",
-                                "low_cloud_cover_pct", "precipitation_mm",
-                            )
-                        ):
+                        forecast_metrics = _forecast_day_metrics([pair[0] for pair in pairs])
+                        observed_metrics = _observed_day_metrics([pair[1] for pair in pairs])
+                        if forecast_metrics is None or observed_metrics is None:
                             continue
-                        observation = nearest_observation(station_obs, obs_times, valid_at)
-                        if observation is not None:
-                            pairs.append((forecast_row, observation))
-                    if len(pairs) < MIN_MATCHED_HOURS:
-                        continue
-                    forecast_metrics = _forecast_day_metrics([pair[0] for pair in pairs])
-                    observed_metrics = _observed_day_metrics([pair[1] for pair in pairs])
-                    if forecast_metrics is None or observed_metrics is None:
-                        continue
-                    cloud_errors = [
-                        abs(pair[0]["cloud_cover_pct"] - pair[1].cloud_cover_pct)
-                        for pair in pairs
-                    ]
-                    samples_by_lead[lead_day].append({
-                        "run_at": run_at.isoformat(),
-                        "target_date": target_day.isoformat(),
-                        "lead_day": lead_day,
-                        "station_id": station.station_id,
-                        "station_name": station.name,
-                        "forecast_condition": forecast_metrics["condition"],
-                        "observed_condition": observed_metrics["condition"],
-                        "matched_hours": len(pairs),
-                        "forecast_sunshine_hours": forecast_metrics["sunshine_hours"],
-                        "forecast_mean_cloud_cover_pct": forecast_metrics["mean_cloud_cover_pct"],
-                        "observed_mean_cloud_cover_pct": observed_metrics["mean_cloud_cover_pct"],
-                        "cloud_cover_abs_error_pct": round(sum(cloud_errors) / len(cloud_errors), 1),
-                    })
+                        cloud_errors = [
+                            abs(pair[0]["cloud_cover_pct"] - pair[1].cloud_cover_pct)
+                            for pair in pairs
+                        ]
+                        samples_by_model[model_id][lead_day].append({
+                            "run_at": run_at.isoformat(),
+                            "target_date": target_day.isoformat(),
+                            "lead_day": lead_day,
+                            "station_id": station.station_id,
+                            "station_name": station.name,
+                            "model_id": model_id,
+                            "forecast_condition": forecast_metrics["condition"],
+                            "observed_condition": observed_metrics["condition"],
+                            "matched_hours": len(pairs),
+                            "forecast_sunshine_hours": forecast_metrics["sunshine_hours"],
+                            "forecast_mean_cloud_cover_pct": forecast_metrics["mean_cloud_cover_pct"],
+                            "observed_mean_cloud_cover_pct": observed_metrics["mean_cloud_cover_pct"],
+                            "cloud_cover_abs_error_pct": round(sum(cloud_errors) / len(cloud_errors), 1),
+                        })
     finally:
         forecast_client.close()
 
