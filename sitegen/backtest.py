@@ -318,7 +318,22 @@ def select_stations(stations: list[Station], boundary: Any, max_stations: int) -
         ),
     )
     selected: list[Station] = []
+    # CHI network IDs are ICAO-coded airport stations; include them before
+    # spatially filling in lower-frequency SYNOP sites. Station-year file
+    # presence alone does not prove that sky-cover fields are usable.
+    airport_candidates = [
+        station for station in candidates
+        if station.station_id.startswith("CHI") or station.icao
+    ]
     remaining = candidates.copy()
+    for station in airport_candidates:
+        if len(selected) >= max_stations:
+            break
+        selected.append(station)
+        remaining.remove(station)
+
+    # Farthest-point sampling then covers the rest of the basin, instead of
+    # allowing remote SYNOP locations to crowd out observed airport cloud data.
     while remaining and len(selected) < max_stations:
         if not selected:
             centre = boundary.centroid

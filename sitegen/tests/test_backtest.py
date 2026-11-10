@@ -152,3 +152,17 @@ def test_quality_gate_requires_spatial_seasonal_and_lead_coverage() -> None:
     assert quality["sufficient_for_research_review"] is True
     assert quality["calibrated_sunshine_probability"] is False
     assert len(quality["represented_seasons"]) == 4
+
+
+def test_station_selection_includes_all_available_icao_network_stations() -> None:
+    stations = [
+        Station("CHI0000ZUUU", "CHENGDU SHUANGLIU", 30.57, 103.94, 495, None, None),
+        Station("CHI0000ZUTF", "CHENGDU TIANFU", 30.31, 104.45, 446, None, None),
+        Station("CHI0000ZUCK", "CHONGQING JIANGBEI", 29.72, 106.64, 416, None, None),
+        Station("CHM00056492", "YIBIN", 28.8, 104.6, 350, "56492", None),
+        Station("CHM00057306", "LANGZHONG", 31.58, 105.97, 370, "57306", None),
+    ]
+    selected = select_stations(stations, box(102, 27, 110, 34), 3)
+    assert {station.station_id for station in selected} == {
+        "CHI0000ZUUU", "CHI0000ZUTF", "CHI0000ZUCK"
+    }
