@@ -745,7 +745,7 @@ def _solar_radiation_quality_gate(samples: list[dict[str, Any]]) -> dict[str, An
         for month in months
     }
     checks = {
-        "at_least_200_grid_days": len(samples) >= 200,
+        "at_least_200_spatial_days": len(samples) >= 200,
         "at_least_4_spatial_points": spatial_point_count >= 4,
         "at_least_50_days_per_lead": all(count >= 50 for count in lead_counts.values()),
         "four_seasons_represented": len(seasons) == 4,
@@ -755,10 +755,10 @@ def _solar_radiation_quality_gate(samples: list[dict[str, Any]]) -> dict[str, An
         "calibrated_sunshine_probability": False,
         "checks": checks,
         "unique_spatial_points": spatial_point_count,
-        "lead_grid_days": lead_counts,
+        "lead_spatial_days": lead_counts,
         "represented_seasons": sorted(seasons),
         "caveat": (
-            "NASA POWER ALLSKY_SFC_SW_DWN 是 0.5° 网格的卫星/再分析太阳辐射产品，"
+            "NASA POWER ALLSKY_SFC_SW_DWN 使用约 0.5° × 0.625° 的卫星/再分析太阳辐射网格，"
             "不是地面日照时数仪器观测；该门槛只允许开展辐射误差研究，不代表可直接标定晴天概率。"
         ),
     }
