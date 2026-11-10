@@ -64,6 +64,7 @@ function formatTime(value?: string | null, withDate = true) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "时间待确认";
   return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
     ...(withDate ? { month: "numeric", day: "numeric" } : {}),
     hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(date);
@@ -75,7 +76,7 @@ function windowLabel(window: SunshineWindow | null | undefined) {
 }
 
 function hourLabel(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", hour12: false }).format(new Date(value));
+  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", hour12: false }).format(new Date(value));
 }
 
 export default function Home() {
@@ -195,7 +196,7 @@ export default function Home() {
                   <div className="day-col" key={day.date}>
                     <strong>{day.sunshine_hours == null ? "—" : day.sunshine_hours.toFixed(1) + "h"}</strong>
                     <div className="day-bar-wrap"><div className="day-bar" style={{height:Math.max(2,((day.sunshine_hours || 0)/maxDaily)*100) + "%"}}/></div>
-                    <small>{new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric"}).format(new Date(day.date + "T12:00:00+08:00"))}</small>
+                    <small>{new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",month:"numeric",day:"numeric"}).format(new Date(day.date + "T12:00:00+08:00"))}</small>
                   </div>
                 ))}
               </div>
