@@ -1,0 +1,57 @@
+name: Historical forecast verification
+
+on:
+  push:
+    branches: [main, feature/forecast-backtesting]
+    paths:
+      - "sitegen/backtest.py"
+      - "sitegen/tests/test_backtest.py"
+      - "sitegen/forecast.py"
+      - "sitegen/open_meteo.py"
+      - "sitegen/geography.py"
+      - ".github/workflows/backtest.yml"
+  schedule:
+    - cron: "30 2 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-forecast-verification
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    name: Verify archived HRES against NOAA station observations
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sitegen/requirements.txt
+      - name: Install forecast pipeline
+        run: pip install -r sitegen/requirements.txt
+      - name: Run unit tests and lint
+        run: |
+          ruff check sitegen
+          python -m pytest -q sitegen/tests
+      - name: Run historical verification
+        run: |
+          python -m sitegen.backtest \
+            --start-date 2024-04-15 \
+            --end-date 2026-09-15 \
+            --max-runs 12 \
+            --max-stations 8 \
+            --output artifacts/forecast-backtest.json
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-forecast-verification
+          path: artifacts/forecast-backtest.json
+          if-no-files-found: warn
+          retention-days: 30

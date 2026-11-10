@@ -94,3 +94,8 @@ GitHub Pages 首次发布需要在仓库 **Settings → Pages → Build and depl
 - 尚未对接地面观测站并完成回测，**不展示预测准确率或校准后的概率**。
 
 来源：[Open-Meteo](https://open-meteo.com/) · [GeoNames](https://www.geonames.org/)（CC BY 4.0）· [USGS OFR 00-047](https://pubs.usgs.gov/of/2000/of00-047/) · © OpenStreetMap contributors。
+
+
+## 历史预报回测
+
+运行 python -m sitegen.backtest，使用 NOAA NCEI GHCNh 地面站逐时报文与 Open-Meteo 历史 ECMWF IFS HRES 单次预报进行逐站、逐日、1–3 天提前量验证。报告输出混淆矩阵、晴/晴间多云识别 precision/recall/F1，以及云量 MAE 和偏差。该数据是机场/地面站云况代理，不是日照时数传感器；样本不足时不得据此调整生产阈值或宣传预测准确率。详细口径见 docs/FORECAST_BACKTEST.md。
