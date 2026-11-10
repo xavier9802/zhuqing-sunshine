@@ -489,6 +489,17 @@ def load_station_year(
                 diagnostics["rows_with_fm12_synop_precipitation"] = (
                     diagnostics.get("rows_with_fm12_synop_precipitation", 0) + 1
                 )
+            examples = diagnostics.setdefault("raw_report_examples", [])
+            if len(examples) < 3:
+                examples.append({
+                    "report": report[:500],
+                    "columns": sorted(
+                        key for key in row
+                        if any(token in _normalise_key(key) for token in (
+                            "sky", "cloud", "remarks", "report", "weather", "visibility"
+                        ))
+                    ),
+                })
         sky_cover = parse_sky_cover_from_row(row)
         if sky_cover is not None and diagnostics is not None:
             diagnostics["rows_with_sky_cover_fields"] = diagnostics.get("rows_with_sky_cover_fields", 0) + 1
