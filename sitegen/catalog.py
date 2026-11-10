@@ -21,11 +21,21 @@ class ModelSpec:
         return self.native_steps[-1][1]
 
 
+# Sunshine duration alone is not a sufficient proxy for a clear/pleasant day.
+# Collect cloud layers, humidity and radiation diagnostics as independent evidence.
 COMMON_VARIABLES = (
     "sunshine_duration",
     "cloud_cover",
+    "cloud_cover_low",
+    "cloud_cover_mid",
+    "cloud_cover_high",
     "precipitation",
     "temperature_2m",
+    "relative_humidity_2m",
+    "dew_point_2m",
+    "shortwave_radiation",
+    "weather_code",
+    "is_day",
 )
 
 MODEL_CATALOG: dict[str, ModelSpec] = {
