@@ -41,13 +41,9 @@ jobs:
         env:
           OPEN_METEO_USAGE: non_commercial
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            # Keep the last successful site when all providers fail.
-            python -m sitegen.build --mode live --require-live
-          else
-            # Initial release can show explicit no-data status, never fake forecasts.
-            python -m sitegen.build --mode live
-          fi
+          # Never replace the last valid public forecast with an empty snapshot,
+          # including after a documentation or backtesting-only main push.
+          python -m sitegen.build --mode live --require-live
       - name: Archive small forecast summary snapshot (14 days)
         uses: actions/upload-artifact@v4
         with:
