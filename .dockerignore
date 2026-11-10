@@ -1,9 +1,0 @@
-**/.git
-**/.next
-**/node_modules
-**/.venv
-**/__pycache__
-**/.pytest_cache
-.env
-data/raw
-data/cache

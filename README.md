@@ -1,131 +1,95 @@
 # 追晴 · 四川盆地日照预测
 
-追晴（Sunshine Forecast）关注四川盆地日照变化，回答一个简单的问题：**下一次什么时候更有机会见到太阳？**
+> 下一次太阳，什么时候来？
 
-当前版本是可本地启动的 MVP。系统以可追溯的数值天气预报批次为基础，计算区域日照覆盖、连续日照窗口与城市级日照趋势。没有地面站点验证前，不展示虚构的预测准确率或未经校准的概率。
+追晴（Sunshine Forecast）是面向四川盆地的非商业日照预测实验站点。采用 **Next.js 静态导出 + GitHub Actions 定时采集 + GitHub Pages**，没有常驻 API、PostgreSQL、PostGIS、Redis 或 Docker。
 
-## MVP 功能
+## 立即查看
 
-- 四川盆地概化边界与 0.25° 裁剪网格，按网格实际面积加权。
-- 成都、重庆及周边 12 个重点城市的地理点位。
-- ECMWF IFS HRES、IFS 0.25°、AIFS Single 三个模型独立存档和切换。
-- 模型初始化时间、数据可用时间、采集时间、预报有效时间分开记录。
-- 原始响应与 SHA-256 留档，保留模型原生时间步长并标记插值时次。
-- 盆地日照分布地图、72 小时时间轴、未来 7 日日照趋势。
-- 城市详情、连续日照窗口和逐小时预报。
-- Worker 每小时轮询模型批次；同一模型初始化及修订版本不重复采集。
-- Docker Compose 一键启动，FastAPI 文档与健康检查。
+GitHub Pages **预期**网址：
 
-## 技术栈
+https://xavier9802.github.io/zhuqing-sunshine/
 
-| 层 | 技术 |
+只有在本分支合并至默认分支、并在仓库 Settings → Pages 选择 **GitHub Actions** 发布源、部署成功后，这个网址才会真实上线。
+
+## 核心功能
+
+- 四川盆地 0.25° 网格，USGS 概化盆地边界裁剪，按实际面积加权。
+- 未来 72 小时的逐小时网格日照图层与区域覆盖率。
+- 未来 7 天区域日照时长趋势。
+- 14 个城市的连续日照窗口与逐小时预测详情。
+- 三种 ECMWF 模式：IFS HRES、IFS 0.25°、AIFS 0.25°（分别获取与标记）。
+- 显示模型初始化、预测有效时次、采集时间、插值时次与来源。
+- 缺失模型时显示缺失或降级状态，绝不产生伪造的放晴概率或预测数值。
+
+所有天气数据由 GitHub Actions 服务器采集；打开网页的用户**不会直接访问 Open-Meteo**。
+
+## 仓库结构
+
+| 位置 | 用途 |
 |---|---|
-| Web | Next.js、React、TypeScript、MapLibre GL |
-| API | Python、FastAPI、Pydantic |
-| Worker | Python、httpx、SQLAlchemy、Shapely、PyProj |
-| Database | PostgreSQL 16 + PostGIS |
-| Weather | Open-Meteo ECMWF Single Runs API |
-| Geography | USGS basin boundary proxy、GeoNames |
-| Runtime | Docker Compose |
+| apps/web/ | Next.js 15 静态页面、城市详情、MapLibre |
+| sitegen/ | Python 天气采集、地理数据、日照计算和 JSON 快照生成 |
+| sitegen/tests/ | 单元测试与无网络数据生成测试 |
+| .github/workflows/ci.yml | 静态网站、Python 与 TypeScript 自动测试 |
+| .github/workflows/pages.yml | 每 4 小时尝试刷新并发布 GitHub Pages |
+| docs/ | 架构、气象来源、上线清单 |
 
-## 本地启动
+**没有在线数据库。** USGS 网格几何只保存一份，逐时预测只保存对应的网格数值数组，不重复存储多套 GeoJSON。
 
-需要 Docker Desktop / Docker Engine、Docker Compose 和 Make。
+## 本地开发
+
+需 Node.js 22+、Python 3.12+，以及 npm。
 
 \`\`\`bash
-git clone -b feature/m1-geography-weather-ingestion https://github.com/xavier9802/zhuqing-sunshine.git
+git clone -b feature/github-pages-static-mvp https://github.com/xavier9802/zhuqing-sunshine.git
 cd zhuqing-sunshine
-make start
+python3 -m pip install -r sitegen/requirements.txt
+npm install
+
+# 生成明确标记为“尚无真实数据”的静态结构（不生成模拟预报）
+python3 -m sitegen.build --mode placeholder
+
+npm run dev:web
 \`\`\`
 
-第一次启动会自动：
-1. 从 \`.env.example\` 创建本地 \`.env\`（若尚不存在）。
-2. 构建并启动 PostGIS、API 和 Web。
-3. 下载并导入 USGS 盆地边界、GeoNames 城市点和网格。
-4. 启动每小时轮询模型数据的 Worker。
+浏览器打开 http://localhost:3000。
 
-启动地址：
-
-- Web：http://localhost:3000
-- API 文档：http://localhost:8000/docs
-- API 健康检查：http://localhost:8000/health
-- 数据库就绪检查：http://localhost:8000/health/ready
-
-常用命令：
+本地采集真实天气数据：
 
 \`\`\`bash
-make status   # 查看服务状态
-make logs     # 查看 API / Web / Worker 日志
-make ingest   # 手动立即采集一轮 7 天模型预报
-make down     # 停止服务，保留数据库卷
-make rebuild  # 重新构建并启动
+python3 -m sitegen.build --mode live --require-live
+npm run dev:web
 \`\`\`
 
-也可以手动分步启动：
+若全部天气模型无法访问，采集程序会返回错误，不允许以虚构数据代替。若只是要测试静态构建：
 
 \`\`\`bash
-cp .env.example .env
-docker compose up --build -d db api web
-docker compose run --rm worker import-geography
-docker compose --profile jobs up --build -d worker
+python3 -m pytest -q sitegen/tests
+NEXT_PUBLIC_BASE_PATH=/zhuqing-sunshine npm run build:web
 \`\`\`
 
-首次地理数据导入完成后，Worker 会持续采集最新可用模型批次。也可以手动执行一次：
+构建后的完整静态网站位于 apps/web/out/。
 
-\`\`\`bash
-docker compose run --rm worker ingest-once --days 7
-\`\`\`
+## GitHub Pages 自动更新
 
-## 环境配置与数据授权
+在 main 默认分支上，.github/workflows/pages.yml 会在这些时机执行：
 
-主要配置见 \`.env.example\`。
+- push 到 main；
+- 在 Actions 页面手动运行；
+- 每 4 小时在 UTC 分钟 17 尝试自动刷新。
 
-Open-Meteo 免费接口仅限非商业使用。个人原型评估可按其免费层条款使用；若追晴用于商业产品、商业推广或其他商业场景，须先购买适用的商业计划，并设置：
+定时任务在 GitHub Actions 不保证准点执行。若所有模型不可用，定时任务失败并保留上次成功发布的网站；页面必须结合其“数据采集时间”和模型时次判断新鲜度。
 
-\`\`\`env
-OPEN_METEO_USAGE=commercial
-OPEN_METEO_API_KEY=your-paid-api-key
-\`\`\`
+GitHub Pages 首次发布需要在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**。详见 docs/ARCHITECTURE.md。
 
-Worker 将自动切换到 customer API 域名。不要把免费接口用于商业部署。详见 [Open-Meteo 使用条款](https://open-meteo.com/en/terms) 与 [价格及授权说明](https://open-meteo.com/en/pricing)。
+## 使用范围及数据风险
 
-## 数据来源与边界
+- 初期采用 Open-Meteo **非商业**接口，不能无授权用于商业用途；GitHub Pages 也不适合做商业 SaaS。
+- 天气来自 ECMWF 数值模式，计算出的日照窗口不是气象部门官方晴天定义。
+- 源数据的空间/时间分辨率因模型而异，部分小时结果是服务端插值值。
+- USGS 数据是 1:5,000,000 结构沉积盆地概化边界，不代表精确地形或行政边界；其原始数据缺少 .prj，WGS84 为临时展示假设。
+- GitHub Pages、OpenStreetMap 地图瓦片对中国大陆访问的稳定性不能保证。
+- 尚未对接地面观测站并完成回测，**不展示预测准确率或校准后的概率**。
 
-- **气象预报**：[Open-Meteo](https://open-meteo.com/)；数据按 CC BY 4.0 提供。页面保留来源署名，追晴对原始预报进行网格聚合和日照指标计算。
-- **城市坐标**：[GeoNames](https://www.geonames.org/)；CC BY 4.0。
-- **盆地边界**：[USGS Open-File Report 00-047](https://pubs.usgs.gov/of/2000/of00-047/)；使用其结构沉积盆地数据作为概化代理。
-- **地图底图**：© OpenStreetMap contributors。
-
-USGS 原始边界是约 1:5,000,000 比例尺的结构沉积盆地概化数据，并非行政区划或精细地貌边界。其 Shapefile 缺少 \`.prj\`；USGS 元数据只明确经纬度十进制度，未明确大地基准。当前对地图展示临时采用 WGS84，并在数据元信息中保留这一假设，不能将其视为测绘级坐标依据。
-
-## 日照计算口径
-
-- 单个网格小时内预计有效日照不少于 30 分钟，计入有效日照覆盖。
-- 盆地放晴窗口：连续至少 2 小时，盆地有效日照覆盖率不低于 50%，且数据完整度不低于 80%。
-- 网格权重使用边界裁剪后的等积投影面积，不以经纬度格点数量简单平均。
-- 缺失数据保持 NULL；不以零值补齐。
-- 预报原生时间分辨率按模型 lead time 记录；高于小时步长的数据插值时次会显式标记。
-- “日照窗口”是追晴的产品计算口径，不等同于气象部门的官方晴天定义。
-- Open-Meteo 的 `sunshine_duration` 是前一小时累计值，时间戳作为该小时段的结束时刻；连续放晴窗口按完整未来小时计算，跨日统计归属到小时段的起始日期。
-- 模型预报不等于地面实况。尚未接入站点观测并完成回测前，不发布准确率、命中率或概率性承诺。
-
-## 验证状态
-
-GitHub Actions 持续执行 Python / API / Web 检查与 Docker 构建。地理数据集成测试会从真实来源下载并导入数据，在 PostGIS 中验证边界与网格几何，并核对城市数量。
-
-当前已验证的地理快照：**14 个城市、358 个 0.25° 裁剪网格**。模型预报数据的实际采集和地面站点回测仍需在部署环境中完成。
-
-## 项目结构
-
-\`\`\`text
-apps/web/          Next.js 前端
-services/api/      FastAPI 查询接口
-services/worker/   地理数据导入与模型预报采集
-docs/              架构与开发任务
-docker-compose.yml 本地服务编排
-Makefile           一键启动与常用操作
-\`\`\`
-
-## 云端部署
-
-完整云端部署方案使用 Render Blueprint，配置文件为 `render.yaml`，操作步骤、费用与验收地址见 [docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md)。部署前请在 Render Blueprint 预览页核对实际费用。
+来源：[Open-Meteo](https://open-meteo.com/) · [GeoNames](https://www.geonames.org/)（CC BY 4.0）· [USGS OFR 00-047](https://pubs.usgs.gov/of/2000/of00-047/) · © OpenStreetMap contributors。

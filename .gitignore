@@ -12,13 +12,10 @@ __pycache__/
 venv/
 .env
 .env.*
-!.env.example
 *.pem
 *.key
 .DS_Store
 .idea/
 .vscode/
-data/raw/
-data/cache/
-data/geography/
-data/downloads/
+.cache/
+apps/web/public/data/

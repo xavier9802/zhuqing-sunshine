@@ -1,35 +1,22 @@
-.PHONY: init up geography worker ingest start status logs down rebuild
+.PHONY: install placeholder refresh test dev build
 
-init:
-	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example"; fi
+install:
+	python3 -m pip install -r sitegen/requirements.txt
+	npm install
 
-up:
-	docker compose up --build -d db api web
+placeholder:
+	python3 -m sitegen.build --mode placeholder
 
-geography:
-	docker compose run --rm worker import-geography
+refresh:
+	python3 -m sitegen.build --mode live --require-live
 
-worker:
-	docker compose --profile jobs up --build -d worker
+test:
+	python3 -m pytest -q sitegen/tests
+	npm run typecheck:web
+	npm run lint:web
 
-ingest:
-	docker compose run --rm worker ingest-once --days 7
+dev:
+	npm run dev:web
 
-start: init up geography worker
-	@echo ""
-	@echo "追晴 MVP 已启动："
-	@echo "  Web:      http://localhost:3000"
-	@echo "  API Docs: http://localhost:8000/docs"
-	@echo "  API:      http://localhost:8000/health"
-
-status:
-	docker compose --profile jobs ps
-
-logs:
-	docker compose --profile jobs logs -f --tail=100 api web worker
-
-down:
-	docker compose --profile jobs down
-
-rebuild:
-	docker compose --profile jobs up --build -d
+build:
+	NEXT_PUBLIC_BASE_PATH=/zhuqing-sunshine npm run build:web

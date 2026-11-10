@@ -1,55 +1,23 @@
-# Development tasks
+# 静态 MVP 验收清单
 
-## M0 — Project foundation
-- [x] Create repository and feature branch.
-- [x] Add monorepo skeleton.
-- [x] Add Next.js dashboard scaffold.
-- [x] Add FastAPI health and data-status endpoints.
-- [x] Add PostGIS Docker Compose service.
-- [x] Add API tests and CI workflow.
-- [x] Pass frontend and API CI.
+## 已实现
+- [x] 从原全栈版本创建 feature/github-pages-static-mvp 独立分支。
+- [x] 复用 USGS/GeoNames 数据导入算法，不依赖 PostGIS。
+- [x] 复用 ECMWF 单轮预报采集、时次和插值标记。
+- [x] 地图几何独立存储，逐时网格仅保存紧凑数值数组。
+- [x] 无真实数据时显示 initializing，不能生成假预测。
+- [x] Next.js output=export，14个城市路由静态生成。
+- [x] 前端改为读取同源静态 JSON，而非 FastAPI。
+- [x] GitHub Actions 每4小时触发生成并自动发布的工作流。
+- [x] CI 通过 Python 测试、TypeScript、ESLint 与 14 城页面静态构建。
 
-## M1 — Geography and weather ingestion
-- [x] Identify a traceable initial Sichuan Basin structural-sedimentary boundary source.
-- [x] Implement boundary download and reprojection when a .prj exists; for this source's missing .prj, use the USGS-documented decimal-degree coordinates with an explicitly provisional WGS84 display assumption and provenance caveat.
-- [x] Implement a configurable 0.25° grid clipped to the basin with equal-area cell weights.
-- [x] Implement the 14-city GeoNames import with province matching and source attribution.
-- [x] Validate ECMWF model IDs against the current Open-Meteo API specification.
-- [x] Add model metadata polling and retain run initialization / availability timestamps.
-- [x] Add model-specific native temporal schedules and interpolation flags.
-- [x] Add multi-location request batching, retries, timeout and 429 handling.
-- [x] Persist raw payloads, checksums, normalized hourly data and provider-resolved grid coordinates.
-- [x] Add worker tests and CI.
-- [x] Execute a live USGS + GeoNames geography import in PostGIS CI; verified 14 cities, 358 grid cells and valid geometries.
-- [ ] Execute the first forecast ingestion in the deployment environment after selecting the correct Open-Meteo usage plan.
-- [ ] Verify model freshness and all requested model variables against a live forecast response.
+## 尚待线上验收
+- [ ] 在 GitHub Actions 实际下载天气模型，并检查数据完整度和有效时间。
+- [ ] 合并至 main 并启用 GitHub Pages Actions 发布源。
+- [ ] 检查真实 github.io 公网地址、地图图层与14城访问。
+- [ ] 观察更新延迟、API 速率限制和中国大陆网络连通性。
+- [ ] 后续对接地面气象站实况开展误差回测。
 
-## M2 — Sunshine calculation
-- [x] Normalize sunshine duration to minutes for product calculations.
-- [x] Detect continuous sunshine windows with missing-data handling.
-- [x] Calculate daily sunshine duration and daylight-normalized indicators.
-- [x] Aggregate grid results using clipped cell area weights.
-- [x] Expose IFS and AIFS as separately selectable model runs; do not present uncalibrated probabilities.
-- [x] Add deterministic unit tests for edge cases.
-
-## M3 — Product experience
-- [x] Replace map placeholder with MapLibre grid rendering.
-- [x] Add 72-hour timeline and forecast model switching.
-- [x] Add 7-day daily sunshine trend.
-- [x] Add city detail routes.
-- [x] Add source/model freshness indicators.
-
-## M4 — Verification
-- [ ] Archive forecast snapshots by run and lead time.
-- [ ] Connect suitable ground observations.
-- [ ] Calculate sunshine-duration error and window hit rate.
-- [ ] Evaluate probability reliability before displaying probabilities.
-- [ ] Document verification methodology.
-
-## M5 — Release readiness
-- [x] Add Open-Meteo, GeoNames, USGS and OpenStreetMap source attribution to the product UI.
-- [x] Document Open-Meteo non-commercial vs commercial API usage requirements.
-- [ ] Review final deployment data licensing and attribution.
-- [ ] Confirm meteorological information service requirements.
-- [ ] Add monitoring, backups and operational alerts.
-- [ ] Complete mobile and accessibility checks.
+## 安全边界
+- 非商业 API/Pages 使用规则须在公开使用前复核。
+- 由于没有校准观测数据，产品不能展示经过测量的准确率或晴天概率。

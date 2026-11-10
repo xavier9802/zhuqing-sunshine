@@ -1,65 +1,59 @@
-# Architecture
+# 追晴 Lite：Static-First 架构
 
-\`\`\`text
-USGS basin polygon ─┐
-GeoNames city points ├─> Geography importer ─> PostGIS
-                    │
-Open-Meteo model metadata + Single Runs API
-                    │
-                    v
-             Python ingestion worker
-                    │
-          ┌─────────┴──────────┐
-          v                    v
-   Raw JSONB payloads   Normalized hourly rows
-          │                    │
-          └─────────┬──────────┘
-                    v
-               PostgreSQL
-                    │
-                 FastAPI
-                    │
-              Next.js web app
-\`\`\`
+## 数据流
 
-## Services
+1. GitHub Actions 每四小时尝试触发 Python 快照生成器。
+2. 下载/读取缓存的 USGS 盆地代理边界与 GeoNames 14 城市点位；生成 0.25° 裁剪网格与面积权重。
+3. 逐模型读取 Open-Meteo 发布元数据，使用模型初始化时次精确请求 Single Runs API。
+4. 对网格与城市按位置批量采集 sunshine_duration、cloud_cover、precipitation、temperature_2m。每个模型单独处理失败。
+5. Python 计算盆地面积加权日照、连续窗口与各城市逐时/逐日结果。
+6. 写入 apps/web/public/data 的静态 JSON，构建 Next.js export，上传 GitHub Pages artifact。
+7. 访问者只请求 github.io 站点内的 HTML、JavaScript、JSON 和 GeoJSON，不直接查询气象商接口。
 
-- **Web**: forecast presentation, map interaction, city exploration and explanations.
-- **API**: stable read-only product endpoints; browser clients do not call weather providers directly.
-- **Worker**: imports geographic source data, polls model metadata, retrieves exact model runs, batches requests, retries transient failures, archives raw payloads and normalizes hourly values.
-- **PostGIS**: stores the basin boundary, clipped 0.25° cell polygons, city reference points and resolved provider grid-cell coordinates.
+## 静态数据契约
 
-## Data model
+所有文件均生成于构建时，不提交大量天气预报快照到 Git 仓库。
 
-- \`region_boundaries\`: source, scale, source CRS and versioned boundary geometry.
-- \`forecast_locations\`: city and grid sample points; grid locations retain clipped cell geometry and area weights. Inactive locations are retained so historical forecast joins are not destroyed after a geography refresh.
-- \`forecast_runs\`: model ID, exact initialization time, retrieval time, provider publication time, native cadence and source provenance.
-- \`raw_forecast_payloads\`: request parameters, raw response JSON and SHA-256 checksum for each batch.
-- \`forecast_run_locations\`: requested sample coordinates and the provider's resolved grid-cell coordinates, frozen for each model run.
-- \`forecast_hourly\`: normalized forecast variables keyed by run, location and valid time.
+- data/status.json — 所有模型的采集状态、初始化/检索时次。
+- data/overview/{model_id}.json — 72 小时盆地汇总、窗口和 7 天趋势；hourly[].grid_file 指向数值切片。
+- data/cities/{model_id}.json — 14 城市列表和日照窗口。
+- data/city/{model_id}/{slug}.json — 城市逐小时与逐日预报。
+- data/geography/grid.geojson — 单份网格几何，包含位置键与裁剪面积。
+- data/geography/boundary.geojson — USGS 概化盆地边界。
+- data/geography/cities.json — GeoNames 城市目录。
+- data/grid/{model_id}/{yyyyMMddTHHmmZ}.json — 与网格几何按数组顺序对齐的小时值 [日照分钟, 云量%, 降水mm, 插值标记]。
 
-## Engineering rules
+显示层只能使用已成功生成的 model snapshots。未生成/缺失值一律为 null，不以0代替，也不通过曲线拟合虚构预测。
 
-1. Never overwrite a previous model run; every ingestion cycle creates a new run record.
-2. Keep model initialization, provider availability, local retrieval and forecast valid time separate.
-3. Preserve model-native temporal cadence and explicitly flag hourly interpolation.
-4. Keep missing provider values as NULL; never silently replace them with zero.
-5. Store requested and provider-resolved coordinates separately for each model run.
-6. Store the raw response and its checksum before relying on normalized values.
-7. Do not call a model-consensus score a calibrated probability.
-8. The initial basin polygon is a generalized structural-sedimentary proxy, not an official administrative boundary.
+## 网格与日照计算
 
-## Running M1 jobs
+- 网格面积采用 EPSG:6933 等积投影测算，边缘裁剪后参与加权。
+- 每个网格每小时日照时长 >= 30分钟为有效日照；覆盖率计算需校验有效数据面积。
+- 整体窗口：有效日照面积覆盖率 >=50%，数据完整度 >=80%，连续至少2小时。
+- 时间戳代表此前1小时的累计日照。窗口开始时间应减去1小时，不能把它当作小时起点。
+- 模型原生时间步长与提供方的逐小时插值分开标记。
+- 元数据包括 model_run_at、retrieved_at、forecast_end_at、source 等。
 
-\`\`\`bash
-# Start PostGIS, API and web
-docker compose up --build -d db api web
+## 失败处理与新鲜度
 
-# Import source geography and create the 0.25° grid
-docker compose run --rm worker import-geography
+- 模型采集可单独失败；首页会区分 available、degraded 与 initializing。
+- schedule 事件在完全拿不到真实模型时拒绝部署，以保留上次成功快照；首次推送/手动执行可以发布明确标记为无数据的页面外壳。
+- GitHub Actions 可能延迟；刷新策略不是实时气象服务 SLA。
+- 产品应结合实际 retrieved_at 与当前时间提示数据是否过期。
+- GitHub Pages 只能托管站点文件，无法直接运行 Python、Node 服务或 Postgres。
 
-# Fetch the latest available exact run for each configured ECMWF model
-docker compose run --rm worker ingest-once --days 7
-\`\`\`
+## 发布设置
 
-The worker uses the free Open-Meteo endpoint only when explicitly configured for non-commercial use. For commercial operation, configure the paid customer endpoints and API key first.
+1. 将静态重构代码合并至默认分支 main。
+2. 仓库 Settings → Pages → Build and deployment → Source 选择 GitHub Actions。
+3. main 上的 pages.yml 开始首次部署；CI 在合并前验证构建。
+4. 验收 GitHub Actions 的 Pages 构建和部署任务，检查 /data/status.json。
+5. 打开 https://xavier9802.github.io/zhuqing-sunshine/，检查首页、14 个城市路由、地图切片与更新时间。
+
+GitHub Pages 站点 URL 为预期地址，完成部署前不能声称已经上线。
+
+## 后续优化
+
+- 独立天气数据准确率回测需要地面实况数据；不因静态架构免除模型校验。
+- 可以后续把 apps/web/out 迁移到国内静态托管而不更改采集/前端逻辑。
+- GitHub Actions 的免费资源和 Open-Meteo 免费 API 受使用政策与非商业授权限制。
