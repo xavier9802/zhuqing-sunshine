@@ -107,6 +107,10 @@ def main() -> None:
     ingest_parser.add_argument("--days", type=int, default=None)
     loop_parser = commands.add_parser("ingest-loop", help="按固定间隔持续采集新模型批次")
     loop_parser.add_argument("--interval-minutes", type=int, default=60)
+    production_parser = commands.add_parser(
+        "start-production", help="初始化地理数据并启动持续预报采集"
+    )
+    production_parser.add_argument("--interval-minutes", type=int, default=60)
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -115,6 +119,14 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     if args.command == "ingest-loop":
+        run_ingestion_loop(settings, args.interval_minutes)
+        return
+    if args.command == "start-production":
+        geography_result = import_geography(settings)
+        print(json.dumps({
+            "event": "geography_import_complete",
+            "result": geography_result,
+        }, ensure_ascii=False), flush=True)
         run_ingestion_loop(settings, args.interval_minutes)
         return
 

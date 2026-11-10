@@ -125,3 +125,7 @@ docs/              架构与开发任务
 docker-compose.yml 本地服务编排
 Makefile           一键启动与常用操作
 \`\`\`
+
+## 云端部署
+
+完整云端部署方案使用 Render Blueprint，配置文件为 `render.yaml`，操作步骤、费用与验收地址见 [docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md)。部署前请在 Render Blueprint 预览页核对实际费用。
