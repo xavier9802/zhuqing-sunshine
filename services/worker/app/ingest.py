@@ -196,6 +196,7 @@ def ingest_model(
                 ForecastRun.model_id == model_id,
                 ForecastRun.model_run_at == run_at,
                 ForecastRun.status == "complete",
+                ForecastRun.modified_at == metadata.modified_at,
             )
             .order_by(ForecastRun.retrieved_at.desc())
             .limit(1)
@@ -206,7 +207,7 @@ def ingest_model(
                 "model_id": model_id,
                 "model_run_at": run_at.isoformat(),
                 "status": "skipped",
-                "reason": "this exact model initialization has already been ingested",
+                "reason": "this exact model initialization and provider revision have already been ingested",
                 "locations": len(locations),
                 "batches": 0,
                 "forecast_start_at": existing_run.forecast_start_at.isoformat() if existing_run.forecast_start_at else None,
