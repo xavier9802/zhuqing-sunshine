@@ -83,7 +83,7 @@ jobs:
         working-directory: services/worker
     env:
       DATABASE_URL: postgresql+psycopg://zhuqing:test-password@localhost:5432/zhuqing
-      DATA_DIR: \${{ runner.temp }}/zhuqing-geography
+      DATA_DIR: ${{ runner.temp }}/zhuqing-geography
       GRID_SPACING_DEGREES: "0.25"
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +100,6 @@ jobs:
         with:
           name: zhuqing-geography-smoke
           path: |
-            \${{ runner.temp }}/geography-import-summary.json
-            \${{ runner.temp }}/zhuqing-geography/geography/*.geojson
-            \${{ runner.temp }}/zhuqing-geography/geography/cities.json
+            ${{ runner.temp }}/geography-import-summary.json
+            ${{ runner.temp }}/zhuqing-geography/geography/*.geojson
+            ${{ runner.temp }}/zhuqing-geography/geography/cities.json
