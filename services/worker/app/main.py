@@ -6,6 +6,8 @@ import time
 from dataclasses import replace
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.config import Settings
 from app.db import create_schema, make_engine, make_session_factory
 from app.geography import download_usgs_boundary, generate_grid_cells
@@ -13,7 +15,6 @@ from app.geonames import download_city_catalog
 from app.ingest import ingest_all
 from app.providers.open_meteo import OpenMeteoClient
 from app.storage import persist_geography, save_geography_assets
-from sqlalchemy.exc import SQLAlchemyError
 
 
 def import_geography(settings: Settings) -> dict[str, int]:
