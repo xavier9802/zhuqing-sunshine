@@ -160,7 +160,7 @@ def _synop_cloud_group(report: str) -> str | None:
     if tokens and tokens[0].startswith("SYN") and len(tokens) >= 3:
         return tokens[2]
     match = re.search(
-        r"\\bAAXX\\s+\\d{5}\\s+\\d{5}\\s+\\d{5}\\s+([^\\s]+)",
+        r"\bAAXX\s+\d{5}\s+\d{5}\s+\d{5}\s+([^\s]+)",
         text,
     )
     return match.group(1) if match else None
@@ -169,7 +169,7 @@ def _synop_cloud_group(report: str) -> str | None:
 def parse_synop_sky_cover(report: str) -> float | None:
     """Decode FM-12 total cloud amount N from either NOAA compact or AAXX form."""
     group = _synop_cloud_group(report)
-    if not group or not re.fullmatch(r"[0-9]\\d{4}", group):
+    if not group or not re.fullmatch(r"[0-9]\d{4}", group):
         # A slash in Nddff means total cloud amount was not reported.
         return None
     amount = int(group[0])
@@ -198,7 +198,7 @@ def parse_synop_precipitation(report: str) -> bool:
     else:
         return False
     for token in weather_groups:
-        match = re.fullmatch(r"7(\\d{2})\\d{2}", token)
+        match = re.fullmatch(r"7(\d{2})\d{2}", token)
         if match:
             # SYNOP ww 50–99 describes current drizzle/rain/snow or other
             # precipitation phenomena. 20–49 are not treated as current rain.
