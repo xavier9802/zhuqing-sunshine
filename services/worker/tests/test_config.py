@@ -21,3 +21,14 @@ def test_commercial_usage_requires_api_key(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="requires OPEN_METEO_API_KEY"):
         Settings.from_env()
+
+
+def test_database_url_normalizes_render_postgres_connection_strings() -> None:
+    from app.db import normalize_database_url
+
+    assert normalize_database_url("postgres://user:pass@host:5432/db") == (
+        "postgresql+psycopg://user:pass@host:5432/db"
+    )
+    assert normalize_database_url("postgresql://user:pass@host:5432/db") == (
+        "postgresql+psycopg://user:pass@host:5432/db"
+    )
