@@ -13,7 +13,7 @@ type CityData = {
   longitude: number;
   next_sunshine_window: { starts_at: string; ends_at: string; expected_sunshine_minutes: number; basis: string } | null;
   daily: { date: string; sunshine_hours: number | null; status: string }[];
-  hourly: { valid_at: string; sunshine_minutes: number | null; cloud_cover_pct: number | null; precipitation_mm: number | null; temperature_c: number | null; is_interpolated: boolean }[];
+  hourly: { valid_at: string; sunshine_minutes: number | null; cloud_cover_pct: number | null; low_cloud_cover_pct: number | null; mid_cloud_cover_pct: number | null; high_cloud_cover_pct: number | null; relative_humidity_pct: number | null; precipitation_mm: number | null; temperature_c: number | null; is_day: boolean | null; is_interpolated: boolean }[];
 };
 
 function fmt(value: string) {
@@ -86,7 +86,7 @@ export default function CityPage() {
           {city.hourly.slice(0,48).map(hour=><div className="city-hour" key={hour.valid_at}>
             <b>{fmtHourRange(hour.valid_at)}</b>
             <strong>{hour.sunshine_minutes==null?"—":hour.sunshine_minutes.toFixed(0) + " min"}</strong>
-            <small>{hour.cloud_cover_pct==null?"云量 —":"云量 " + hour.cloud_cover_pct.toFixed(0) + "%"}　{hour.temperature_c==null?"":hour.temperature_c.toFixed(0) + "℃"}</small>
+            <small>{hour.cloud_cover_pct==null?"总云 —":"总云 " + hour.cloud_cover_pct.toFixed(0) + "%"}　{hour.low_cloud_cover_pct==null?"低云 —":"低云 " + hour.low_cloud_cover_pct.toFixed(0) + "%"}　{hour.temperature_c==null?"":hour.temperature_c.toFixed(0) + "℃"}</small>
           </div>)}
         </div>
       </section>

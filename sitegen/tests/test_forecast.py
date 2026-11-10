@@ -63,7 +63,7 @@ def test_city_window_uses_two_consecutive_effective_sunshine_hours() -> None:
     ]
     window = find_city_sunshine_window(rows)
     assert window is not None
-    assert window["expected_sunshine_minutes"] == 73.3
+    assert window["expected_sunshine_minutes"] == 110.0
 
 
 def test_daily_summary_is_local_calendar_day() -> None:

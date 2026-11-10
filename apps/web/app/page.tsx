@@ -54,6 +54,24 @@ type City = {
   status: string;
 };
 
+type ConsensusDay = {
+  date: string;
+  condition: string;
+  condition_label: string;
+  model_count: number;
+  agreement_count: number;
+  agreement_pct: number;
+  agreement_label: string;
+  sunshine_hours: number | null;
+  sunny_score: number | null;
+};
+type Consensus = {
+  status: string;
+  model_count: number;
+  daily: ConsensusDay[];
+  best_sunny_day: ConsensusDay | null;
+  method: { version: string; note: string };
+};
 type DataStatus = {
   status: string;
   message: string;
@@ -91,6 +109,7 @@ export default function Home() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [cities, setCities] = useState<City[]>([]);
   const [dataStatus, setDataStatus] = useState<DataStatus | null>(null);
+  const [consensus, setConsensus] = useState<Consensus | null>(null);
   const [selectedTime, setSelectedTime] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -112,10 +131,15 @@ export default function Home() {
         if (!r.ok) throw new Error("数据状态静态快照尚未生成");
         return r.json() as Promise<DataStatus>;
       }),
-    ]).then(([nextOverview, cityData, nextStatus]) => {
+      fetch(dataUrl("consensus.json"), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("多模型综合判断尚未生成");
+        return r.json() as Promise<Consensus>;
+      }),
+    ]).then(([nextOverview, cityData, nextStatus, nextConsensus]) => {
       setOverview(nextOverview);
       setCities(cityData.cities || []);
       setDataStatus(nextStatus);
+      setConsensus(nextConsensus);
       setSelectedTime(nextOverview.hourly?.[0]?.valid_at || "");
     }).catch(err => {
       if (err instanceof Error && err.name !== "AbortError") setError(err.message || "暂时无法连接追晴服务");
@@ -162,10 +186,27 @@ export default function Home() {
       {isStale && <div className="warning-note">天气快照超过 12 小时未更新，当前结果可能过期，请以模型初始化时间和天气实况为准。</div>}
 
       <section className="metrics">
-        <article className="metric featured"><label><Sun size={15}/> 下一次盆地放晴窗口</label><strong className="value pending">{windowLabel(overview?.next_sunshine_window, overview?.status === "available")}</strong><small className="metric-note">{overview?.next_sunshine_window ? "预计连续有效日照约 " + (overview.next_sunshine_window.expected_sunshine_minutes / 60).toFixed(1) + " 小时" : overview?.status === "available" ? "当前预报周期内未达到放晴判定条件" : "完成真实模型数据采集后生成"}</small></article>
+        <article className="metric featured"><label><Sun size={15}/> 多模型晴好候选日</label><strong className="value pending">{consensus?.best_sunny_day ? new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",month:"numeric",day:"numeric"}).format(new Date(consensus.best_sunny_day.date + "T12:00:00+08:00")) + " · " + consensus.best_sunny_day.condition_label : "暂未发现一致候选日"}</strong><small className="metric-note">{consensus?.best_sunny_day ? consensus.best_sunny_day.agreement_label + "；不是晴天概率" : "需要至少两个可用模型给出晴好方向"}</small></article>
         <article className="metric"><label><Waves size={15}/> 所选时次平均日照</label><strong>{selectedHour?.sunshine_minutes == null ? "—" : selectedHour.sunshine_minutes.toFixed(0)} <small>分钟/小时</small></strong><small className="metric-note">按网格有效面积加权</small></article>
         <article className="metric"><label><CloudSun size={15}/> 有效日照覆盖</label><strong>{selectedHour?.sunshine_coverage_pct == null ? "—" : selectedHour.sunshine_coverage_pct.toFixed(0)} <small>%</small></strong><small className="metric-note">每小时有效日照不少于 30 分钟的区域占比</small></article>
         <article className="metric"><label><Compass size={15}/> 数据完整度</label><strong>{selectedHour?.data_completeness_pct == null ? "—" : selectedHour.data_completeness_pct.toFixed(0)} <small>%</small></strong><small className="metric-note">本时次有有效日照数据的网格面积</small></article>
+      </section>
+
+      <section className="panel consensus-panel">
+        <div className="section-head">
+          <div><label>MULTI-MODEL OUTLOOK · V1.1</label><h2>未来 7 天晴好判断</h2><p>综合总云量、低云量、有效日照和降水，避免仅凭日照时长误判放晴</p></div>
+          <span className="muted-tag">{consensus?.model_count || 0}/3 MODELS</span>
+        </div>
+        <div className="consensus-days">
+          {(consensus?.daily || []).map(day => <article key={day.date} className={"consensus-day " + (consensus?.best_sunny_day?.date === day.date ? "best" : "")}>
+            <small>{new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",month:"numeric",day:"numeric"}).format(new Date(day.date + "T12:00:00+08:00"))}</small>
+            <b>{day.condition_label}</b>
+            <span>{day.sunshine_hours == null ? "日照 —" : "日照 " + day.sunshine_hours.toFixed(1) + "h"}</span>
+            <em>{day.agreement_label}</em>
+          </article>)}
+          {!consensus?.daily?.length && <div className="chart-empty">等待至少两个模型的有效日照与云层诊断数据</div>}
+        </div>
+        <p className="consensus-note">{consensus?.method?.note || "模型一致性仅作方向参考；尚未使用地面观测进行准确率校准。"}</p>
       </section>
 
       <section className="panel map-panel">
@@ -230,7 +271,7 @@ export default function Home() {
       </section>
 
       <section className="method" id="method"><span><Database size={19}/></span><div><b>让每一次预测都有据可查</b><p>{overview?.model ? "当前展示 " + overview.model.model_name + "，初始化时间 " + formatTime(overview.model.model_run_at) + "，采集时间 " + formatTime(overview.model.retrieved_at) + "。" : "追晴将记录模型来源、预报批次、有效时间与历史误差，不用未经验证的概率制造确定性。"}</p></div><small>{dataStatus?.status === "available" ? "DATA CONNECTED" : "DATA INITIALIZING"}</small></section>
-      <div className="warning-note">判定口径：单个网格小时内预计有效日照不少于 30 分钟，视为该网格出现有效日照；盆地放晴窗口要求连续至少 2 小时、有效日照覆盖率达到 50%，且数据完整度不低于 80%。这是产品展示口径，不是气象部门对“晴天”的官方定义。模型预报不等于地面实况，尚未完成站点验证前不展示准确率或概率。</div>
+      <div className="warning-note">V1.1 判定口径：晴天分类联合使用晴空覆盖（总云量≤30%、低云量≤25%）、明亮覆盖（总云量≤65%、低云量≤50%）、有效日照与降水条件；放晴窗口至少连续 3 小时，并要求云层诊断完整度≥80%、插值网格面积不超过50%。多模型采用等权分类投票，不将相关模型包装成概率。所有阈值均为透明的产品规则，尚未通过地面观测校准。</div>
       <footer className="footer">
         <span>追晴 SUNSHINE FORECAST</span>
         <span className="footer-attribution">
