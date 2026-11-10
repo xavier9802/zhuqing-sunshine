@@ -525,11 +525,6 @@ def load_station_year(
                     diagnostics["rows_with_fm12_synop_cloud_missing"] = (
                         diagnostics.get("rows_with_fm12_synop_cloud_missing", 0) + 1
                     )
-                    # Capture a few source examples so parser changes are based on
-                    # NOAA's actual REM payload rather than an assumed token layout.
-                    examples = diagnostics.setdefault("fm12_synop_report_samples", [])
-                    if len(examples) < 8:
-                        examples.append(report[:320])
                 else:
                     diagnostics["rows_with_fm12_synop_cloud"] = (
                         diagnostics.get("rows_with_fm12_synop_cloud", 0) + 1
@@ -826,6 +821,93 @@ def _common_solar_model_comparison(
     }
 
 
+def _radiation_error_metrics(errors: list[float]) -> dict[str, Any]:
+    if not errors:
+        return {"sample_count": 0, "mae_mj_m2": None, "rmse_mj_m2": None, "bias_mj_m2": None}
+    return {
+        "sample_count": len(errors),
+        "mae_mj_m2": round(sum(abs(value) for value in errors) / len(errors), 2),
+        "rmse_mj_m2": round((sum(value * value for value in errors) / len(errors)) ** 0.5, 2),
+        "bias_mj_m2": round(sum(errors) / len(errors), 2),
+    }
+
+
+def _temporal_holdout_solar_validation(
+    samples_by_model: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    all_samples = [sample for samples in samples_by_model.values() for sample in samples]
+    years = sorted({int(sample["run_at"][:4]) for sample in all_samples})
+    if len(years) < 2:
+        return {
+            "status": "insufficient_years",
+            "holdout_year": None,
+            "by_model": {},
+            "production_correction_applied": False,
+            "note": "至少需要两个不同预报年份才能进行时间外留出验证。",
+        }
+
+    holdout_year = years[-1]
+    cutoff = f"{holdout_year}-01-01"
+    by_model: dict[str, Any] = {}
+    for model_id, samples in samples_by_model.items():
+        by_lead: dict[str, Any] = {}
+        for lead in (1, 2, 3):
+            train = [
+                sample for sample in samples
+                if sample["lead_day"] == lead and sample["run_at"][:10] < cutoff
+            ]
+            holdout = [
+                sample for sample in samples
+                if sample["lead_day"] == lead and sample["run_at"][:10] >= cutoff
+            ]
+            train_errors = [
+                sample["forecast_shortwave_mj_m2"] - sample["nasa_power_shortwave_mj_m2"]
+                for sample in train
+            ]
+            holdout_errors = [
+                sample["forecast_shortwave_mj_m2"] - sample["nasa_power_shortwave_mj_m2"]
+                for sample in holdout
+            ]
+            train_bias = sum(train_errors) / len(train_errors) if train_errors else None
+            corrected_errors = (
+                [error - train_bias for error in holdout_errors]
+                if train_bias is not None else []
+            )
+            raw_metrics = _radiation_error_metrics(holdout_errors)
+            corrected_metrics = _radiation_error_metrics(corrected_errors)
+            enough = len(train) >= 50 and len(holdout) >= 50
+            raw_mae = raw_metrics["mae_mj_m2"]
+            corrected_mae = corrected_metrics["mae_mj_m2"]
+            by_lead[str(lead)] = {
+                "training_spatial_days": len(train),
+                "holdout_spatial_days": len(holdout),
+                "training_bias_mj_m2": round(train_bias, 2) if train_bias is not None else None,
+                "holdout_raw": raw_metrics,
+                "holdout_bias_corrected": corrected_metrics,
+                "sufficient_for_bias_stability_review": enough,
+                "mae_improvement_pct": (
+                    round((raw_mae - corrected_mae) / raw_mae * 100, 1)
+                    if enough and raw_mae not in {None, 0} and corrected_mae is not None
+                    else None
+                ),
+            }
+        by_model[model_id] = by_lead
+
+    return {
+        "status": "temporal_holdout_evaluated",
+        "training_period_end": f"{holdout_year - 1}-12-31",
+        "holdout_year": holdout_year,
+        "holdout_period_start": cutoff,
+        "split_method": "按预报初始化年份切分；最新可用年份留出，之前年份仅用于估计偏差",
+        "by_model": by_model,
+        "production_correction_applied": False,
+        "note": (
+            "该留出集验证的是 ECMWF 短波辐射相对 NASA POWER 再分析产品的时间外误差，"
+            "不是地面日照时数验证。偏差订正仅作研究对照，不自动应用于线上预报。"
+        ),
+    }
+
+
 def _common_cloud_model_comparison(
     samples_by_model: dict[str, dict[int, list[dict[str, Any]]]],
 ) -> dict[str, Any]:
@@ -957,7 +1039,7 @@ def run_backtest(
         nasa_power_status: dict[str, str] = {}
         for station in stations:
             records: list[Observation] = []
-            diagnostics: dict[str, Any] = {}
+            diagnostics: dict[str, int] = {}
             for year in station.available_years:
                 records.extend(
                     load_station_year(
@@ -1266,6 +1348,7 @@ def run_backtest(
         },
         "nasa_power_radiation_samples": all_solar_samples,
         "nasa_power_radiation_samples_by_model": all_solar_samples_by_model,
+        "nasa_power_temporal_holdout": _temporal_holdout_solar_validation(all_solar_samples_by_model),
         "samples_by_model": all_samples_by_model,
         "station_diagnostics": station_diagnostics,
         "lead_days": lead_summaries,
@@ -1285,7 +1368,7 @@ def run_backtest(
                 "Asia/Shanghai local day (W/m² × 0.0036). NASA POWER is a 0.5° satellite/"
                 "reanalysis radiation product, not a direct sunshine-duration station sensor."
             ),
-            "cloud_cover": "优先采用 GHCNh sky_condition/sky_cover_summation/sky_cover_layer 观测字段；缺失时回退解析 METAR 原始报文。FEW/SCT/BKN/OVC/VV 转为 oktas 覆盖率区间中点；CAVOK/NSC/NCD 保守记为 26%，不等同于晴空",
+            "cloud_cover": "优先采用 GHCNh sky_condition/sky_cover/sky_cover_1..3/sky_cover_summation/sky_cover_layer 观测字段；缺失时回退解析 METAR/SYNOP 原始报文。SYNOP N 字段为斜杠时表示云量未报告，按缺测排除，不视为晴空。FEW/SCT/BKN/OVC/VV 转为 oktas 覆盖率区间中点；CAVOK/NSC/NCD 保守记为 26%，不等同于晴空",
             "limitations": [
                 "GHCNh 站点主要为机场/地面报文站，空间分布稀疏，不能代表整个盆地每个网格。",
                 "METAR 云量是天空状况代理，不是地面日照时数传感器；本报告不能验证 sunshine_duration 的分钟级误差。",

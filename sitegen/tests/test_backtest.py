@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from typing import Any
 
 from shapely.geometry import box
 
@@ -7,6 +8,7 @@ from sitegen.backtest import (
     _binary_metrics,
     _common_cloud_model_comparison,
     _common_solar_model_comparison,
+    _temporal_holdout_solar_validation,
     parse_observation,
     parse_sky_cover,
     parse_sky_cover_code,
@@ -234,6 +236,33 @@ def test_common_cloud_model_comparison_uses_identical_cases() -> None:
     })
     assert result["common_case_count"] == 1
     assert result["by_model"]["ecmwf_ifs"]["1"]["station_days"] == 1
+
+
+def test_temporal_holdout_solar_validation_uses_prior_year_only() -> None:
+    def sample(run_at: str, forecast: float, reference: float) -> dict[str, Any]:
+        return {
+            "run_at": run_at,
+            "lead_day": 1,
+            "forecast_shortwave_mj_m2": forecast,
+            "nasa_power_shortwave_mj_m2": reference,
+        }
+
+    result = _temporal_holdout_solar_validation({
+        "ecmwf_ifs": [
+            sample("2024-06-15T00:00:00+00:00", 12, 10),
+            sample("2025-06-15T00:00:00+00:00", 14, 10),
+            sample("2026-06-15T00:00:00+00:00", 15, 10),
+            sample("2026-07-15T00:00:00+00:00", 11, 10),
+        ]
+    })
+    lead = result["by_model"]["ecmwf_ifs"]["1"]
+    assert result["holdout_year"] == 2026
+    assert lead["training_spatial_days"] == 2
+    assert lead["holdout_spatial_days"] == 2
+    assert lead["training_bias_mj_m2"] == 3
+    assert lead["holdout_raw"]["mae_mj_m2"] == 3
+    assert lead["holdout_bias_corrected"]["mae_mj_m2"] == 2
+    assert result["production_correction_applied"] is False
 
 
 def test_common_solar_model_comparison_uses_identical_cases() -> None:
