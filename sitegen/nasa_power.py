@@ -30,11 +30,9 @@ def _grid_key(payload: dict[str, Any], latitude: float, longitude: float) -> str
         except (KeyError, TypeError, ValueError):
             pass
 
-    # POWER's global daily radiation grid is 0.5 degrees. This fallback is
-    # only a spatial de-duplication key; the API response remains authoritative.
-    grid_lat = round((latitude - 0.25) * 2) / 2 + 0.25
-    grid_lon = round((longitude - 0.25) * 2) / 2 + 0.25
-    return f"{grid_lat:.2f},{grid_lon:.2f}"
+    # If the API omits snapped grid coordinates, retain the requested point
+    # rather than inventing a grid origin or implying a distinct cell.
+    return f"{latitude:.3f},{longitude:.3f}"
 
 
 def _to_mj_m2_day(value: float, units: str | None) -> float:
