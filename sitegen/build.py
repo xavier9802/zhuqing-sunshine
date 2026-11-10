@@ -429,12 +429,11 @@ def generate(
         raise ValueError("mode must be live or placeholder")
 
     geography = geography or load_geography(cache, output)
-    # Keep geometries visible when an injected geography snapshot is used in tests.
-    if not (output / "data" / "geography" / "grid.geojson").exists():
-        write_json(
-            output / "data" / "geography" / "grid.geojson",
-            {"type": "FeatureCollection", "features": geography.grid_features},
-        )
+    # Store geometry only once, separate from every per-hour values snapshot.
+    write_json(
+        output / "data" / "geography" / "grid.geojson",
+        {"type": "FeatureCollection", "features": geography.grid_features},
+    )
 
     usage = os.getenv("OPEN_METEO_USAGE", "non_commercial")
     if usage not in {"commercial", "non_commercial"}:
@@ -472,11 +471,19 @@ def generate(
                         batch_size=batch_size,
                     )
                 )
-            except (ValueError, RuntimeError, OSError, KeyError, TypeError, Exception) as exc:
+            except Exception as exc:
                 # Per-model isolation: failure cannot publish partial grid results.
                 LOG.exception("Forecast ingest failed for %s: %s", model_id, exc)
                 shutil.rmtree(output / "data" / "grid" / model_id, ignore_errors=True)
                 shutil.rmtree(output / "data" / "city" / model_id, ignore_errors=True)
+                write_json(
+                    output / "data" / "overview" / f"{model_id}.json",
+                    empty_overview(now, f"模型预报暂时不可用：{str(exc)[:120]}"),
+                )
+                write_json(
+                    output / "data" / "cities" / f"{model_id}.json",
+                    {"status": "initializing", "model": None, "cities": []},
+                )
                 fallback = model_status(model_id)
                 fallback["message"] = str(exc)[:250]
                 statuses.append(fallback)
