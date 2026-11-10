@@ -452,7 +452,7 @@ def load_station_year(
     year: int,
     cache_dir: Path,
     target_dates: set[date],
-    diagnostics: dict[str, int] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> list[Observation]:
     cache_path = cache_dir / "ghcnh" / str(year) / f"{station.station_id}.psv"
     if cache_path.is_file():
@@ -764,7 +764,7 @@ def run_backtest(
             )
         stations = select_stations(available_candidates, boundary, max_stations)
         station_observations: dict[str, list[Observation]] = {}
-        station_diagnostics: dict[str, dict[str, int]] = {}
+        station_diagnostics: dict[str, dict[str, Any]] = {}
         for station in stations:
             records: list[Observation] = []
             diagnostics: dict[str, int] = {}
