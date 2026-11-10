@@ -65,4 +65,3 @@ def test_parse_nasa_power_converts_kwh_to_mj() -> None:
     )
 
     assert values[date(2024, 6, 1)] == 12.6
-\n
