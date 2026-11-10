@@ -83,7 +83,7 @@ jobs:
         working-directory: services/worker
     env:
       DATABASE_URL: postgresql+psycopg://zhuqing:test-password@localhost:5432/zhuqing
-      DATA_DIR: /tmp/zhuqing-geography
+      DATA_DIR: ${{ github.workspace }}/.smoke/data
       GRID_SPACING_DEGREES: "0.25"
     steps:
       - uses: actions/checkout@v4
@@ -94,12 +94,44 @@ jobs:
           cache-dependency-path: services/worker/requirements.txt
       - run: pip install -r requirements.txt
       - name: Import live USGS basin and GeoNames city data
-        run: python -m app.main import-geography | tee "/tmp/geography-import-summary.json"
+        run: |
+          mkdir -p .smoke
+          python -m app.main import-geography > .smoke/geography-import-summary.json
+          cat .smoke/geography-import-summary.json
+      - name: Assert imported geometry and city coverage
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from shapely.geometry import shape
+
+          root = Path(".smoke/data/geography")
+          summary = json.loads(Path(".smoke/geography-import-summary.json").read_text())
+          boundary = json.loads((root / "sichuan_basin_boundary.geojson").read_text())
+          grid = json.loads((root / "grid_cells.geojson").read_text())
+          cities = json.loads((root / "cities.json").read_text())
+
+          assert summary["cities"] == 14, summary
+          assert summary["grid_cells"] > 0, summary
+          assert len(boundary["features"]) == 1
+          assert shape(boundary["features"][0]["geometry"]).is_valid
+          assert len(grid["features"]) == summary["grid_cells"]
+          assert all(shape(feature["geometry"]).is_valid for feature in grid["features"])
+          assert len(cities) == 14
+          assert len({city["slug"] for city in cities}) == 14
+          print(json.dumps({
+              "status": "verified",
+              "cities": len(cities),
+              "grid_cells": len(grid["features"]),
+              "boundary_features": len(boundary["features"]),
+              "grid_geometry_valid": True,
+          }, ensure_ascii=False, indent=2))
+          PY
       - name: Upload imported geography snapshot
         uses: actions/upload-artifact@v4
         with:
           name: zhuqing-geography-smoke
           path: |
-            /tmp/geography-import-summary.json
-            /tmp/zhuqing-geography/geography/*.geojson
-            /tmp/zhuqing-geography/geography/cities.json
+            .smoke/geography-import-summary.json
+            .smoke/data/geography/*.geojson
+            .smoke/data/geography/cities.json
