@@ -5,6 +5,7 @@ from shapely.geometry import box
 from sitegen.backtest import (
     Station,
     _binary_metrics,
+    sample_quality_gate,
     parse_observation,
     parse_sky_cover,
     parse_sky_cover_code,
@@ -124,3 +125,30 @@ def test_parse_observation_can_use_native_ghcnh_cloud_field_without_metar() -> N
     assert row is not None
     assert row.cloud_cover_pct == 25
     assert row.precipitation is False
+
+
+def test_quality_gate_rejects_sparse_or_single_station_samples() -> None:
+    rows = [
+        {"station_id": "CHI0000ZUTF", "lead_day": lead, "target_date": "2025-07-16"}
+        for lead in (1, 2, 3) for _ in range(80)
+    ]
+    quality = sample_quality_gate(rows)
+    assert quality["sufficient_for_research_review"] is False
+    assert quality["checks"]["at_least_200_station_days"] is True
+    assert quality["checks"]["at_least_4_verified_stations"] is False
+    assert quality["calibrated_sunshine_probability"] is False
+
+
+def test_quality_gate_requires_spatial_seasonal_and_lead_coverage() -> None:
+    seasons = ["2025-01-15", "2025-04-15", "2025-07-15", "2025-10-15"]
+    rows = [
+        {"station_id": station, "lead_day": lead, "target_date": target_date}
+        for station in ("CHI0000ZUTF", "CHI0000ZUCK", "CHM00056287", "CHM00056492")
+        for lead in (1, 2, 3)
+        for target_date in seasons
+        for _ in range(5)
+    ]
+    quality = sample_quality_gate(rows)
+    assert quality["sufficient_for_research_review"] is True
+    assert quality["calibrated_sunshine_probability"] is False
+    assert len(quality["represented_seasons"]) == 4

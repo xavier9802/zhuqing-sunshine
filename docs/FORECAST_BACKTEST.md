@@ -30,3 +30,12 @@ For each lead day, report station-day binary classification metrics for the posi
 - The three ECMWF products are related forecasts, not independent probabilistic members.
 - Do not adjust production thresholds from a small or seasonally unbalanced sample. Require at least 200 station-days overall, at least 50 station-days per lead, and representation across all four seasons before proposing a threshold change.
 - A stronger sunshine-duration verification requires China Meteorological Administration surface station sunshine-duration observations or a separately validated satellite-derived surface solar-radiation product.
+
+
+## First live exploratory run and quality gates
+
+The first successful pipeline execution used 12 archived HRES initialisations and selected 8 NOAA stations with year files. Only two sites (CHI0000ZUCK / Jiangbei and CHI0000ZUTF / Chengdu Tianfu) had sufficiently parseable hourly sky conditions. They produced 72 station-days (24 per lead), which is below research-review thresholds; results MUST be labeled exploratory and not presented as an operational accuracy figure.
+
+New quality gates require at least 200 station-days, at least four independently located usable stations, 50 station-days for each of the 1–3 day leads, and coverage of winter/spring/summer/autumn. Passing these sampling checks still requires independent holdout observations and actual sunshine-duration/solar-radiation measurements before any operational calibration or probability claim.
+
+The cloud-cover MAE averages per-station-day hourly errors equally, not all raw hourly pairs equally. Note that the 2024–2026 period includes an ECMWF IFS cycle change; formal calibration should stratify skill by model cycle.

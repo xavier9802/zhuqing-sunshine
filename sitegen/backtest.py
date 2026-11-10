@@ -608,8 +608,43 @@ def _lead_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     result["cloud_cover_bias_pct"] = (
         round(sum(cloud_bias) / len(cloud_bias), 1) if cloud_bias else None
     )
-    result["hourly_cloud_pairs"] = len(cloud_errors)
+    result["station_day_cloud_pairs"] = len(cloud_errors)
     return result
+
+
+def sample_quality_gate(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    verified_stations = {row["station_id"] for row in samples}
+    months = {int(row["target_date"][5:7]) for row in samples}
+    seasons = {
+        "winter" if month in {12, 1, 2}
+        else "spring" if month in {3, 4, 5}
+        else "summer" if month in {6, 7, 8}
+        else "autumn"
+        for month in months
+    }
+    lead_counts = {
+        str(lead): sum(row["lead_day"] == lead for row in samples)
+        for lead in (1, 2, 3)
+    }
+    checks = {
+        "at_least_200_station_days": len(samples) >= 200,
+        "at_least_4_verified_stations": len(verified_stations) >= 4,
+        "at_least_50_days_per_lead": all(count >= 50 for count in lead_counts.values()),
+        "four_seasons_represented": len(seasons) == 4,
+    }
+    return {
+        "sufficient_for_research_review": bool(samples) and all(checks.values()),
+        "calibrated_sunshine_probability": False,
+        "checks": checks,
+        "verified_station_count": len(verified_stations),
+        "verified_station_ids": sorted(verified_stations),
+        "lead_station_days": lead_counts,
+        "represented_seasons": sorted(seasons),
+        "caveat": (
+            "通过样本规模门槛也不代表可直接标定晴天概率；"
+            "仍需独立留出集、太阳辐射/实测日照数据及区域分层核验。"
+        ),
+    }
 
 
 def run_backtest(
@@ -787,8 +822,13 @@ def run_backtest(
         for lead in (1, 2, 3)
         for sample in samples_by_lead[lead]
     ]
+    quality = sample_quality_gate(all_samples)
     payload = {
-        "status": "available" if all_samples else "insufficient_observations",
+        "status": (
+            "insufficient_observations" if not all_samples
+            else "research_ready" if quality["sufficient_for_research_review"]
+            else "exploratory"
+        ),
         "generated_at": datetime.now(UTC).isoformat(),
         "forecast_model": FORECAST_MODEL,
         "forecast_source": "Open-Meteo Single Runs API (archived ECMWF IFS HRES)",
@@ -800,7 +840,9 @@ def run_backtest(
             "run_count_available": sum(1 for item in run_statuses if item["status"] == "available"),
         },
         "stations": [asdict(station) for station in stations],
-        "station_count": len(stations),
+        "station_count": quality["verified_station_count"],
+        "candidate_station_count": len(stations),
+        "quality_gates": quality,
         "station_diagnostics": station_diagnostics,
         "lead_days": lead_summaries,
         "sample_count": len(all_samples),
@@ -811,6 +853,8 @@ def run_backtest(
             "lead_days": [1, 2, 3],
             "matching": "forecast valid time 与 NOAA 观测时间最近邻匹配，容差 35 分钟；每日至少 4 个匹配小时",
             "positive_class": "sunny 或 mostly_sunny",
+            "cloud_mae_method": "先计算每个站点日匹配时次的平均绝对误差，再对站点日等权平均；不代表所有逐小时样本等权。",
+            "forecast_cycle_note": "跨越不同 ECMWF IFS 版本的结果暂按总体展示，正式校准必须额外分版本回测。",
             "cloud_cover": "优先采用 GHCNh sky_condition/sky_cover_summation/sky_cover_layer 观测字段；缺失时回退解析 METAR 原始报文。FEW/SCT/BKN/OVC/VV 转为 oktas 覆盖率区间中点；CAVOK/NSC/NCD 保守记为 26%，不等同于晴空",
             "limitations": [
                 "GHCNh 站点主要为机场/地面报文站，空间分布稀疏，不能代表整个盆地每个网格。",
@@ -858,7 +902,7 @@ def main() -> None:
         "lead_days": result["lead_days"],
         "output": str(args.output),
     }, ensure_ascii=False, indent=2))
-    if result["status"] != "available":
+    if result["status"] == "insufficient_observations":
         raise SystemExit("No valid forecast/observation matches; no accuracy claim can be made")
 
 
