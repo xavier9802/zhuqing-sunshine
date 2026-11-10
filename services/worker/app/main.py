@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from datetime import UTC, datetime
 from dataclasses import replace
+from datetime import UTC, datetime
 
 from app.config import Settings
 from app.db import create_schema, make_engine, make_session_factory
@@ -13,6 +13,7 @@ from app.geonames import download_city_catalog
 from app.ingest import ingest_all
 from app.providers.open_meteo import OpenMeteoClient
 from app.storage import persist_geography, save_geography_assets
+from sqlalchemy.exc import SQLAlchemyError
 
 
 def import_geography(settings: Settings) -> dict[str, int]:
@@ -84,7 +85,7 @@ def run_ingestion_loop(settings: Settings, interval_minutes: int) -> None:
                 "at": datetime.now(UTC).isoformat(),
                 "results": result,
             }, ensure_ascii=False), flush=True)
-        except Exception as exc:
+        except (ValueError, RuntimeError, OSError, SQLAlchemyError) as exc:
             print(json.dumps({
                 "event": "ingestion_cycle_failed",
                 "at": datetime.now(UTC).isoformat(),
