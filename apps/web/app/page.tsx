@@ -1,47 +1,223 @@
-import { ArrowUpRight, Cloud, CloudSun, Compass, Database, MapPinned, RadioTower, Sun, Waves } from "lucide-react";
+"use client";
 
-const cities = ["成都", "重庆", "绵阳", "德阳", "遂宁", "南充", "广安", "资阳", "眉山", "乐山", "内江", "自贡", "宜宾", "泸州"];
-const stages = [{time:"现在",label:"当前观测"},{time:"+24h",label:"未来一天"},{time:"+48h",label:"未来两天"},{time:"+72h",label:"未来三天"}];
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  ArrowUpRight, Cloud, CloudSun, Compass, Database, MapPinned,
+  RadioTower, Sun, Waves
+} from "lucide-react";
+import SunshineMap from "./components/SunshineMap";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const MODELS = [
+  { id: "ecmwf_ifs", name: "ECMWF IFS HRES · 9 km" },
+  { id: "ecmwf_ifs025", name: "ECMWF IFS · 0.25°" },
+  { id: "ecmwf_aifs025_single", name: "ECMWF AIFS · 0.25°" },
+];
+
+type SunshineWindow = {
+  starts_at: string;
+  ends_at: string;
+  expected_sunshine_minutes: number;
+  coverage_pct?: number;
+  source_model?: string;
+  basis?: string;
+};
+
+type Hour = {
+  valid_at: string;
+  sunshine_minutes: number | null;
+  sunshine_coverage_pct: number | null;
+  data_completeness_pct: number;
+  cloud_cover_pct: number | null;
+  precipitation_mm: number | null;
+  interpolated_area_pct: number | null;
+};
+
+type Overview = {
+  status: string;
+  generated_at: string;
+  next_sunshine_window: SunshineWindow | null;
+  hourly: Hour[];
+  daily_sunshine_hours: { date: string; sunshine_hours: number | null; mean_sunshine_coverage_pct: number | null; status: string }[];
+  coverage: number | null;
+  message: string;
+  model: { model_name: string; model_run_at: string; retrieved_at: string; spatial_resolution_km: number } | null;
+};
+
+type City = {
+  slug: string;
+  name: string;
+  next_sunshine_window: SunshineWindow | null;
+  daily: { date: string; sunshine_hours: number | null; status: string }[];
+  status: string;
+};
+
+type DataStatus = {
+  status: string;
+  message: string;
+  models: { model_id: string; model_name: string; status: string; model_run_at: string | null; retrieved_at: string | null; locations_count: number }[];
+};
+
+function formatTime(value?: string | null, withDate = true) {
+  if (!value) return "等待数据";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间待确认";
+  return new Intl.DateTimeFormat("zh-CN", {
+    ...(withDate ? { month: "numeric", day: "numeric" } : {}),
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(date);
+}
+
+function windowLabel(window: SunshineWindow | null | undefined) {
+  if (!window) return "未来暂未发现";
+  return formatTime(window.starts_at) + " — " + formatTime(window.ends_at, false);
+}
+
+function hourLabel(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", hour12: false }).format(new Date(value));
+}
 
 export default function Home() {
+  const [model, setModel] = useState("ecmwf_ifs");
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [cities, setCities] = useState<City[]>([]);
+  const [dataStatus, setDataStatus] = useState<DataStatus | null>(null);
+  const [selectedTime, setSelectedTime] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    Promise.all([
+      fetch(API_BASE + "/api/v1/overview?model=" + encodeURIComponent(model), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("日照预测接口暂时不可用");
+        return r.json() as Promise<Overview>;
+      }),
+      fetch(API_BASE + "/api/v1/cities?model=" + encodeURIComponent(model), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("城市预测接口暂时不可用");
+        return r.json() as Promise<{ cities: City[] }>;
+      }),
+      fetch(API_BASE + "/api/v1/data-status", { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("数据状态接口暂时不可用");
+        return r.json() as Promise<DataStatus>;
+      }),
+    ]).then(([nextOverview, cityData, nextStatus]) => {
+      setOverview(nextOverview);
+      setCities(cityData.cities || []);
+      setDataStatus(nextStatus);
+      setSelectedTime(nextOverview.hourly?.[0]?.valid_at || "");
+    }).catch(err => {
+      if (err instanceof Error && err.name !== "AbortError") setError(err.message || "暂时无法连接追晴服务");
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [model]);
+
+  const selectedHour = useMemo(
+    () => overview?.hourly.find(item => item.valid_at === selectedTime) || overview?.hourly[0],
+    [overview, selectedTime],
+  );
+  const maxDaily = Math.max(1, ...((overview?.daily_sunshine_hours || []).map(day => day.sunshine_hours || 0)));
+
   return (
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="/"><span className="brand-mark"><Sun size={21}/></span><span><b>追晴</b><small>SUNSHINE FORECAST</small></span></a>
         <nav><a className="active" href="#forecast">日照预测</a><a href="#cities">城市观察</a><a href="#method">数据与方法</a></nav>
-        <span className="status"><i/> MVP 数据接入准备中</span>
+        <span className={"status " + (dataStatus?.status === "available" ? "online" : dataStatus?.status === "degraded" ? "degraded" : "offline")}><i/> {dataStatus?.status === "available" ? "模型数据已接入" : dataStatus?.status === "degraded" ? "部分数据可用" : "等待真实数据"}</span>
       </header>
 
       <section className="hero" id="forecast">
-        <div>
+        <div className="hero-copy">
           <div className="eyebrow">SICHUAN BASIN · SUNSHINE OUTLOOK</div>
           <h1>下一次太阳，<br/><em>什么时候来？</em></h1>
-          <p>追踪云层、日照与天气模型变化，寻找四川盆地下一次真正放晴的时间窗口。</p>
-          <div className="hero-meta"><span><MapPinned size={15}/> 四川盆地 · 14 个重点城市</span><span><RadioTower size={15}/> 数据源尚未初始化</span></div>
+          <p>追踪四川盆地云层与日照变化，从多个数值天气预报模型中寻找更值得期待的放晴时间窗口。</p>
+          <div className="hero-meta">
+            <span><MapPinned size={15}/> 四川盆地 · 14 个重点城市</span>
+            <span><RadioTower size={15}/> {overview?.model ? "最近预报 " + formatTime(overview.model.model_run_at) : "等待模型批次"}</span>
+          </div>
         </div>
         <div className="sun-art" aria-hidden="true"><div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="sun-disc"><Sun size={52}/></div><div className="cloud cloud-a"/><div className="cloud cloud-b"/><small>SUNLIGHT WINDOW</small></div>
       </section>
 
+      {error && <div className="error-note">{error}。请确认 API 与数据库服务已经启动。</div>}
+      {loading && <div className="loading-line"/>}
+
       <section className="metrics">
-        <article className="metric featured"><label><Sun size={15}/> 下一次放晴</label><strong className="pending">等待数据接入</strong><small>待气象模型数据完成采集后生成</small></article>
-        <article className="metric"><label><Waves size={15}/> 预计日照时长</label><strong>— <small>小时</small></strong><small>暂未生成预测结果</small></article>
-        <article className="metric"><label><CloudSun size={15}/> 盆地日照覆盖</label><strong>— <small>%</small></strong><small>等待网格数据计算</small></article>
-        <article className="metric"><label><Compass size={15}/> 模型一致性</label><strong className="pending">待评估</strong><small>IFS / AIFS 数据尚未接入</small></article>
+        <article className="metric featured"><label><Sun size={15}/> 下一次盆地放晴窗口</label><strong className="value pending">{windowLabel(overview?.next_sunshine_window)}</strong><small className="metric-note">{overview?.next_sunshine_window ? "预计连续有效日照约 " + (overview.next_sunshine_window.expected_sunshine_minutes / 60).toFixed(1) + " 小时" : overview?.status === "available" ? "当前预报周期内未达到放晴判定条件" : "完成真实模型数据采集后生成"}</small></article>
+        <article className="metric"><label><Waves size={15}/> 当前盆地平均日照</label><strong>{selectedHour?.sunshine_minutes == null ? "—" : (selectedHour.sunshine_minutes / 60).toFixed(1)} <small>小时/小时</small></strong><small className="metric-note">按网格有效面积加权</small></article>
+        <article className="metric"><label><CloudSun size={15}/> 有效日照覆盖</label><strong>{selectedHour?.sunshine_coverage_pct == null ? "—" : selectedHour.sunshine_coverage_pct.toFixed(0)} <small>%</small></strong><small className="metric-note">每小时有效日照不少于 30 分钟的区域占比</small></article>
+        <article className="metric"><label><Compass size={15}/> 数据完整度</label><strong>{selectedHour?.data_completeness_pct == null ? "—" : selectedHour.data_completeness_pct.toFixed(0)} <small>%</small></strong><small className="metric-note">本时次有有效日照数据的网格面积</small></article>
       </section>
 
       <section className="panel map-panel">
-        <div className="section-head"><div><label>REGIONAL SUNSHINE MAP</label><h2>四川盆地日照分布</h2><p>按时间查看各区域日照窗口变化</p></div><div className="legend"><span><i className="sun-dot"/>有效日照</span><span><i className="cloud-dot"/>云层覆盖</span><span><i className="wait-dot"/>数据待接入</span></div></div>
-        <div className="map-stage"><div className="map-grid"/><div className="map-watermark">SICHUAN BASIN</div><div className="map-empty"><MapPinned size={25}/><b>日照网格正在准备中</b><span>完成盆地边界与气象数据接入后，这里将显示逐网格日照预测。</span></div><small className="map-note">MAP LAYER · NOT YET AVAILABLE</small></div>
-        <div className="timeline">{stages.map(s=><div key={s.time}><i/><b>{s.time}</b><small>{s.label}</small><em>等待预测</em></div>)}</div>
+        <div className="section-head">
+          <div><label>REGIONAL SUNSHINE MAP</label><h2>四川盆地日照分布</h2><p>按网格面积查看各区域每小时预计有效日照</p></div>
+          <div className="map-toolbar">
+            <label htmlFor="model-select">预报模型</label>
+            <select id="model-select" className="model-select" value={model} onChange={e => setModel(e.target.value)}>
+              {MODELS.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="map-stage">
+          <SunshineMap apiBase={API_BASE} model={model} validAt={selectedTime}/>
+          {(!overview?.hourly?.length || !overview.model) && <div className="map-overlay"><MapPinned size={25}/><b>{loading ? "正在读取日照网格" : "日照网格尚未接入"}</b><span>{overview?.message || "完成地理数据导入和模型预报采集后，这里将展示四川盆地逐网格日照分布。"}</span></div>}
+        </div>
+        <div className="row" style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,marginTop:12,flexWrap:"wrap"}}>
+          <div className="map-key"><i className="k1"/><span>少于 15 分钟</span><i className="k2"/><span>15–30 分钟</span><i className="k3"/><span>30–45 分钟</span><i className="k4"/><span>45–60 分钟</span></div>
+          <div className="data-source"><span className="dot"/> Open-Meteo · {overview?.model?.model_name || "等待模型批次"}</div>
+        </div>
+        <div className="hour-strip">
+          {(overview?.hourly || []).slice(0, 24).map((hour, index) => (
+            <button type="button" key={hour.valid_at} className={"hour-chip " + (selectedHour?.valid_at === hour.valid_at ? "selected" : "")} onClick={() => setSelectedTime(hour.valid_at)}>
+              <b>{index === 0 ? "最近时次" : hourLabel(hour.valid_at)}</b>
+              <span>日照覆盖</span>
+              <em>{hour.sunshine_coverage_pct == null ? "—" : hour.sunshine_coverage_pct.toFixed(0) + "%"}</em>
+            </button>
+          ))}
+          {!overview?.hourly?.length && <span className="muted-tag">暂无可选时次</span>}
+        </div>
+        <p className="map-footnote">地图颜色表示每个网格在所选小时内的预计有效日照分钟数。网格按 USGS 概化盆地边界裁剪，非行政区划边界；底图 © OpenStreetMap contributors。</p>
       </section>
 
       <section className="lower">
-        <article className="panel trend"><div className="section-head"><div><label>NEXT 7 DAYS</label><h2>未来 7 天日照趋势</h2></div><span className="muted-tag">等待模型数据</span></div><div className="chart-empty"><div className="chart-lines"><i/><i/><i/><i/></div><div><Cloud size={23}/><span>数据接入后生成逐日日照趋势</span></div><footer>{["周一","周二","周三","周四","周五","周六","周日"].map(x=><span key={x}>{x}</span>)}</footer></div></article>
-        <article className="panel city-panel" id="cities"><div className="section-head"><div><label>CITY WATCH</label><h2>城市日照观察</h2></div><span className="muted-tag">14 CITIES</span></div><div className="city-list">{cities.map((city,i)=><div key={city}><small>{String(i+1).padStart(2,"0")}</small><b>{city}</b><span>等待预测</span><ArrowUpRight size={13}/></div>)}</div></article>
+        <article className="panel trend">
+          <div className="section-head"><div><label>NEXT 7 DAYS</label><h2>未来 7 天日照趋势</h2></div><span className="muted-tag">{overview?.model ? "模型预报 · 面积加权" : "等待模型数据"}</span></div>
+          {overview?.daily_sunshine_hours?.length ? (
+            <>
+              <div className="daily-bars">
+                {overview.daily_sunshine_hours.map(day => (
+                  <div className="day-col" key={day.date}>
+                    <strong>{day.sunshine_hours == null ? "—" : day.sunshine_hours.toFixed(1) + "h"}</strong>
+                    <div className="day-bar-wrap"><div className="day-bar" style={{height:Math.max(2,((day.sunshine_hours || 0)/maxDaily)*100) + "%"}}/></div>
+                    <small>{new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric"}).format(new Date(day.date + "T12:00:00+08:00"))}</small>
+                  </div>
+                ))}
+              </div>
+              <p className="daily-caption">日照时长为盆地网格面积加权平均值，单位：小时/日。</p>
+            </>
+          ) : <div className="chart-empty"><div className="chart-lines"><i/><i/><i/><i/></div><div><Cloud size={23}/><span>接入模型数据后生成逐日日照趋势</span></div></div>}
+        </article>
+
+        <article className="panel city-panel" id="cities">
+          <div className="section-head"><div><label>CITY WATCH</label><h2>城市日照观察</h2></div><span className="muted-tag">{cities.length || 14} CITIES</span></div>
+          {cities.length ? <div className="city-list">
+            {cities.map((city,index)=><Link href={"/city/" + city.slug} key={city.slug}>
+              <small>{String(index+1).padStart(2,"0")}</small><b>{city.name}</b>
+              <span>{city.next_sunshine_window ? formatTime(city.next_sunshine_window.starts_at,false) : "暂无连续日照"}</span><ArrowUpRight size={13}/>
+            </Link>)}
+          </div> : <div className="warning-note">城市点位和预报数据导入后，将显示成都、重庆及盆地周边重点城市的日照窗口。</div>}
+        </article>
       </section>
 
-      <section className="method" id="method"><span><Database size={19}/></span><div><b>让每一次预测都有据可查</b><p>追晴将记录模型来源、预报批次、有效时间与历史误差，不用未经验证的概率制造确定性。</p></div><small>ENGINE INITIALIZING</small></section>
-      <footer className="footer"><span>追晴 SUNSHINE FORECAST</span><span>四川盆地日照预测 · 数据接入准备阶段</span></footer>
+      <section className="method" id="method"><span><Database size={19}/></span><div><b>让每一次预测都有据可查</b><p>{overview?.model ? "当前展示 " + overview.model.model_name + "，初始化时间 " + formatTime(overview.model.model_run_at) + "，采集时间 " + formatTime(overview.model.retrieved_at) + "。" : "追晴将记录模型来源、预报批次、有效时间与历史误差，不用未经验证的概率制造确定性。"}</p></div><small>{dataStatus?.status === "available" ? "DATA CONNECTED" : "DATA INITIALIZING"}</small></section>
+      <div className="warning-note">判定口径：单个网格小时内预计有效日照不少于 30 分钟，视为该网格出现有效日照；盆地放晴窗口要求连续至少 2 小时、有效日照覆盖率达到 50%，且数据完整度不低于 80%。这是产品展示口径，不是气象部门对“晴天”的官方定义。模型预报不等于地面实况，尚未完成站点验证前不展示准确率或概率。</div>
+      <footer className="footer"><span>追晴 SUNSHINE FORECAST</span><span>数据源 Open-Meteo · GeoNames · USGS</span></footer>
     </main>
   );
 }
