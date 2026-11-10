@@ -512,14 +512,19 @@ def load_station_year(
                     diagnostics["rows_with_fm12_synop_cloud_missing"] = (
                         diagnostics.get("rows_with_fm12_synop_cloud_missing", 0) + 1
                     )
+                    # Capture a few source examples so parser changes are based on
+                    # NOAA's actual REM payload rather than an assumed token layout.
+                    examples = diagnostics.setdefault("fm12_synop_report_samples", [])
+                    if len(examples) < 8:
+                        examples.append(report[:320])
                 else:
                     diagnostics["rows_with_fm12_synop_cloud"] = (
                         diagnostics.get("rows_with_fm12_synop_cloud", 0) + 1
                     )
-            if parse_synop_precipitation(report):
-                diagnostics["rows_with_fm12_synop_precipitation"] = (
-                    diagnostics.get("rows_with_fm12_synop_precipitation", 0) + 1
-                )
+                if parse_synop_precipitation(report):
+                    diagnostics["rows_with_fm12_synop_precipitation"] = (
+                        diagnostics.get("rows_with_fm12_synop_precipitation", 0) + 1
+                    )
 
         sky_cover = parse_sky_cover_from_row(row)
         if sky_cover is not None and diagnostics is not None:
