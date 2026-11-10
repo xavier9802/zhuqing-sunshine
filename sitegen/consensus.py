@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
-
-import json
 
 CONDITION_LABELS = {
     "sunny": "晴",
@@ -50,8 +49,8 @@ def build_consensus(output: Path, model_statuses: list[dict[str, Any]], generate
         top_count = ordered[0][1] if ordered else 0
         tied = len(ordered) > 1 and ordered[1][1] == top_count
         condition = ordered[0][0] if ordered and not tied else "variable"
-        def avg(field: str) -> float | None:
-            values = [float(row[field]) for row in rows if row.get(field) is not None]
+        def avg(field: str, source_rows: list[dict[str, Any]] = rows) -> float | None:
+            values = [float(row[field]) for row in source_rows if row.get(field) is not None]
             return round(sum(values) / len(values), 1) if values else None
         agreement = round(top_count / len(rows) * 100) if rows else 0
         daily.append({

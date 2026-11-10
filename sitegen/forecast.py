@@ -351,9 +351,7 @@ def find_city_sunshine_window(samples: list[CityHour]) -> dict[str, Any] | None:
             return False
         if row.low_cloud_cover_pct is not None and row.low_cloud_cover_pct > BRIGHT_LOW_CLOUD_MAX:
             return False
-        if row.precipitation_mm is None or row.precipitation_mm >= RAIN_HOURLY_MM:
-            return False
-        return True
+        return row.precipitation_mm is not None and row.precipitation_mm < RAIN_HOURLY_MM
 
     def build_window(items: list[CityHour]) -> dict[str, Any]:
         return {
