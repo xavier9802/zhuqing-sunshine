@@ -67,6 +67,18 @@ NASA POWER radiation research comparison uses 12 spatial points and 288 spatial-
 
 The training-period bias does not transfer cleanly to 2026. Even after the research-only correction, residual holdout bias remains. No correction is applied to production.
 
+Low-cloud guardrail sensitivity on the 2026 holdout (24 station-days per lead):
+
+| Lead | Original F1 | Total-cloud-only F1 | Original recall | Total-cloud-only recall |
+|---|---:|---:|---:|---:|
+| 1 day | 66.7% | 26.7% | 58.3% | 16.7% |
+| 2 days | 50.0% | 42.1% | 35.7% | 28.6% |
+| 3 days | 64.3% | 66.7% | 52.9% | 52.9% |
+
+The counterfactual removes the low-cloud restriction while retaining total-cloud, forecast sunshine-duration and precipitation checks. It degrades the 1–2 day results and only marginally improves the 3-day F1. Each lead has only 24 holdout station-days, below the 50-day review threshold. The low-cloud guardrail is retained; production thresholds remain unchanged.
+
+Live full-basin integration smoke (2026-11-10) successfully retrieved ECMWF IFS HRES for 372 locations (358 grid cells plus 14 cities), generated 72 hourly forecast steps, and passed the low-cloud/visibility diagnostic checks. The first hourly sample had 100% cloud-diagnostic completeness, 8.2% low-cloud cover and 12,334 m visibility. Generated data occupied 2.5 MB. This confirms live data/build integration, not forecast accuracy.
+
 IFS 0.25° and AIFS 0.25° archived runs were available for only 5 of the 24 dates. Their station and radiation comparisons are too small for model-selection or calibration decisions. The three ECMWF products remain directional cross-checks, not independent ensemble members.
 
 ## Repeated verification

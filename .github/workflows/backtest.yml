@@ -42,7 +42,6 @@ jobs:
       - name: Run historical verification
         run: |
           # Use the same 24-run sample for branch pushes and scheduled audits.
-          # This improves seasonal and station coverage without changing live data.
           RUNS=24
           python -m sitegen.backtest \
             --start-date 2024-04-15 \
