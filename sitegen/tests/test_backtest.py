@@ -1,4 +1,6 @@
 from datetime import UTC, date, datetime
+
+import httpx
 from typing import Any
 
 from shapely.geometry import box
@@ -6,6 +8,7 @@ from shapely.geometry import box
 from sitegen.backtest import (
     Station,
     _binary_metrics,
+    _request_with_retry,
     _common_cloud_model_comparison,
     _common_solar_model_comparison,
     _low_cloud_guardrail_sensitivity,
@@ -21,6 +24,44 @@ from sitegen.backtest import (
     sample_run_dates,
     select_stations,
 )
+
+
+def test_request_with_retry_recovers_from_remote_protocol_error(monkeypatch) -> None:
+    monkeypatch.setattr("sitegen.backtest.time.sleep", lambda _seconds: None)
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.RemoteProtocolError(
+                "Server disconnected without sending a response", request=request
+            )
+        return httpx.Response(200, text="ok", request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        response = _request_with_retry(client, "GET", "https://noaa.example/data")
+
+    assert response.status_code == 200
+    assert response.text == "ok"
+    assert attempts == 2
+
+
+def test_request_with_retry_recovers_from_transient_http_status(monkeypatch) -> None:
+    monkeypatch.setattr("sitegen.backtest.time.sleep", lambda _seconds: None)
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        status = 503 if attempts == 1 else 200
+        return httpx.Response(status, text="ok", request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        response = _request_with_retry(client, "GET", "https://noaa.example/data")
+
+    assert response.status_code == 200
+    assert attempts == 2
 
 
 def test_parse_metar_sky_cover_categories() -> None:

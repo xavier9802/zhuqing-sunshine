@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import re
+import time
 from bisect import bisect_left
 from collections import defaultdict
 from dataclasses import asdict, dataclass, replace
@@ -87,6 +88,51 @@ def _field(row: dict[str, Any], *names: str) -> str | None:
         if value is not None and str(value).strip() not in {"", "-9999", "-9999.0"}:
             return str(value).strip()
     return None
+
+
+RETRYABLE_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
+
+
+def _request_with_retry(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    attempts: int = 4,
+) -> httpx.Response:
+    """Retry transient NOAA/network failures without masking permanent errors."""
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
+    for attempt in range(attempts):
+        try:
+            response = client.request(method, url, headers=headers)
+        except httpx.TransportError as exc:
+            if attempt == attempts - 1:
+                raise
+            delay = min(2 ** attempt, 8)
+            LOG.warning(
+                "Transient %s transport failure for %s (attempt %s/%s): %s; retrying in %ss",
+                method.upper(), url, attempt + 1, attempts, exc, delay,
+            )
+            time.sleep(delay)
+            continue
+
+        if response.status_code not in RETRYABLE_HTTP_STATUS or attempt == attempts - 1:
+            return response
+
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = min(max(float(retry_after), 0), 30) if retry_after else min(2 ** attempt, 8)
+        except ValueError:
+            delay = min(2 ** attempt, 8)
+        LOG.warning(
+            "Transient HTTP %s for %s (attempt %s/%s); retrying in %ss",
+            response.status_code, url, attempt + 1, attempts, delay,
+        )
+        time.sleep(delay)
+
+    raise RuntimeError(f"Request retry loop exhausted unexpectedly: {method} {url}")
 
 
 def _number(value: str | float | None) -> float | None:
@@ -338,9 +384,11 @@ def probe_station_availability(
         for year in years:
             url = GHCNH_YEAR_URL.format(year=year, station_id=station.station_id)
             try:
-                response = client.head(url)
+                response = _request_with_retry(client, "HEAD", url)
                 if response.status_code in {405, 501}:
-                    response = client.get(url, headers={"Range": "bytes=0-0"})
+                    response = _request_with_retry(
+                        client, "GET", url, headers={"Range": "bytes=0-0"}
+                    )
                 if response.status_code in {200, 206}:
                     station_years.append(year)
                 elif response.status_code != 404:
@@ -495,7 +543,7 @@ def load_station_year(
         content = cache_path.read_text(encoding="utf-8", errors="replace")
     else:
         url = GHCNH_YEAR_URL.format(year=year, station_id=station.station_id)
-        response = client.get(url)
+        response = _request_with_retry(client, "GET", url)
         if response.status_code == 404:
             LOG.warning("No NOAA GHCNh file for %s in %s", station.station_id, year)
             return []
@@ -1094,11 +1142,11 @@ def run_backtest(
         follow_redirects=True,
     )
     try:
-        response = station_http.get(GHCNH_CSV_URL)
+        response = _request_with_retry(station_http, "GET", GHCNH_CSV_URL)
         if response.status_code == 200:
             station_catalog = parse_station_catalog(response.text)
         else:
-            response = station_http.get(GHCNH_TXT_URL)
+            response = _request_with_retry(station_http, "GET", GHCNH_TXT_URL)
             response.raise_for_status()
             station_catalog = parse_station_catalog(response.text)
         if not station_catalog:
