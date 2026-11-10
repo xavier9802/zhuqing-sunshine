@@ -43,7 +43,8 @@ def test_basin_window_requires_two_consecutive_hours_and_good_coverage() -> None
     hours = aggregate_basin_hours(samples)
     window = find_basin_sunshine_window(hours)
     assert window is not None
-    assert window["starts_at"].startswith("2026-11-10T10:00:00")
+    assert window["starts_at"].startswith("2026-11-10T09:00:00")
+    assert window["ends_at"].startswith("2026-11-10T11:00:00")
     assert window["expected_sunshine_minutes"] == 75.0
 
 
@@ -86,7 +87,8 @@ def test_basin_window_returns_the_entire_contiguous_sunshine_period() -> None:
     ]
     window = find_basin_sunshine_window(aggregate_basin_hours(samples))
     assert window is not None
-    assert window["ends_at"].startswith("2026-11-10T13:00:00")
+    assert window["starts_at"].startswith("2026-11-10T09:00:00")
+    assert window["ends_at"].startswith("2026-11-10T12:00:00")
     assert window["expected_sunshine_minutes"] == 120
 
 
@@ -99,3 +101,14 @@ def test_daily_total_ignores_hours_below_data_completeness_threshold() -> None:
     ])
     daily = aggregate_daily(rows)
     assert daily[0]["sunshine_hours"] == 1.0
+
+
+def test_daily_summary_assigns_midnight_timestamp_to_previous_hour_day() -> None:
+    # 16:00 UTC is 00:00 the next day in Sichuan; the preceding-hour value
+    # belongs to 23:00–00:00 on the previous local calendar day.
+    t = datetime(2026, 11, 10, 16, tzinfo=UTC)
+    daily = aggregate_daily(aggregate_basin_hours([
+        GridHour(t, 100, 1800, 20, 0, False),
+    ]))
+    assert daily[0]["date"] == "2026-11-10"
+    assert daily[0]["sunshine_hours"] == 0.5

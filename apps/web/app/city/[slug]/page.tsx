@@ -20,6 +20,14 @@ function fmt(value: string) {
   return new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(value));
 }
 
+function fmtHourRange(value: string) {
+  const end = new Date(value);
+  const start = new Date(end.getTime() - 60 * 60 * 1000);
+  const date = new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",month:"numeric",day:"numeric"}).format(start);
+  const hour = (value: Date) => new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",hour:"2-digit",hour12:false}).format(value);
+  return date + " " + hour(start) + "–" + hour(end) + "时";
+}
+
 export default function CityPage() {
   const params = useParams<{slug:string}>();
   const [city,setCity] = useState<CityData|null>(null);
@@ -61,7 +69,7 @@ export default function CityPage() {
         <div className="section-head"><div><label>HOURLY FORECAST</label><h2>逐小时日照与天气</h2></div><span className="muted-tag">LOCAL TIME · UTC+8</span></div>
         <div className="city-hourly">
           {city.hourly.slice(0,48).map(hour=><div className="city-hour" key={hour.valid_at}>
-            <b>{fmt(hour.valid_at)}</b>
+            <b>{fmtHourRange(hour.valid_at)}</b>
             <strong>{hour.sunshine_minutes==null?"—":hour.sunshine_minutes.toFixed(0) + " min"}</strong>
             <small>{hour.cloud_cover_pct==null?"云量 —":"云量 " + hour.cloud_cover_pct.toFixed(0) + "%"}　{hour.temperature_c==null?"":hour.temperature_c.toFixed(0) + "℃"}</small>
           </div>)}

@@ -76,7 +76,12 @@ function windowLabel(window: SunshineWindow | null | undefined) {
 }
 
 function hourLabel(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", hour12: false }).format(new Date(value));
+  const end = new Date(value);
+  const start = new Date(end.getTime() - 60 * 60 * 1000);
+  const formatHour = (date: Date) => new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", hour: "2-digit", hour12: false,
+  }).format(date);
+  return formatHour(start) + "–" + formatHour(end);
 }
 
 export default function Home() {
@@ -176,7 +181,7 @@ export default function Home() {
         <div className="hour-strip">
           {(overview?.hourly || []).slice(0, 72).map((hour, index) => (
             <button type="button" key={hour.valid_at} className={"hour-chip " + (selectedHour?.valid_at === hour.valid_at ? "selected" : "")} onClick={() => setSelectedTime(hour.valid_at)}>
-              <b>{index === 0 ? "最近时次" : hourLabel(hour.valid_at)}</b>
+              <b>{hourLabel(hour.valid_at)}</b>
               <span>日照覆盖</span>
               <em>{hour.sunshine_coverage_pct == null ? "—" : hour.sunshine_coverage_pct.toFixed(0) + "%"}</em>
             </button>

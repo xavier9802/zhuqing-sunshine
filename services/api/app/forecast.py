@@ -110,8 +110,9 @@ def aggregate_daily(hours: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for hour in hours:
         if not hour.get("valid_at"):
             continue
-        local_time = datetime.fromisoformat(hour["valid_at"])
-        grouped[local_time.date()].append(hour)
+        interval_end = datetime.fromisoformat(hour["valid_at"])
+        interval_start = interval_end - timedelta(hours=1)
+        grouped[interval_start.date()].append(hour)
 
     daily: list[dict[str, Any]] = []
     for day, rows in sorted(grouped.items()):
@@ -155,8 +156,8 @@ def find_basin_sunshine_window(hours: list[dict[str, Any]]) -> dict[str, Any] | 
     def build_window(rows: list[dict[str, Any]]) -> dict[str, Any]:
         last_time = datetime.fromisoformat(rows[-1]["valid_at"])
         return {
-            "starts_at": rows[0]["valid_at"],
-            "ends_at": (last_time + timedelta(hours=1)).isoformat(),
+            "starts_at": (datetime.fromisoformat(rows[0]["valid_at"]) - timedelta(hours=1)).isoformat(),
+            "ends_at": last_time.isoformat(),
             "expected_sunshine_minutes": round(
                 sum(item["sunshine_minutes"] or 0 for item in rows), 1
             ),
@@ -185,8 +186,8 @@ def find_city_sunshine_window(samples: list[CityHour]) -> dict[str, Any] | None:
 
     def build_window(items: list[CityHour]) -> dict[str, Any]:
         return {
-            "starts_at": local_iso(items[0].valid_at),
-            "ends_at": local_iso(_as_utc(items[-1].valid_at) + timedelta(hours=1)),
+            "starts_at": local_iso(_as_utc(items[0].valid_at) - timedelta(hours=1)),
+            "ends_at": local_iso(items[-1].valid_at),
             "expected_sunshine_minutes": round(
                 sum(item.sunshine_seconds or 0 for item in items) / 60, 1
             ),
@@ -210,7 +211,8 @@ def find_city_sunshine_window(samples: list[CityHour]) -> dict[str, Any] | None:
 def city_daily_summary(samples: list[CityHour]) -> list[dict[str, Any]]:
     grouped: dict[date, list[CityHour]] = defaultdict(list)
     for row in samples:
-        grouped[_as_utc(row.valid_at).astimezone(BASIN_TIMEZONE).date()].append(row)
+        interval_start = _as_utc(row.valid_at) - timedelta(hours=1)
+        grouped[interval_start.astimezone(BASIN_TIMEZONE).date()].append(row)
     result: list[dict[str, Any]] = []
     for day, rows in sorted(grouped.items()):
         values = [row.sunshine_seconds for row in rows if row.sunshine_seconds is not None]
