@@ -170,11 +170,20 @@ def _float(values: dict[str, Any], field: str, index: int) -> float | None:
 def _provider_row(hourly: dict[str, Any], index: int) -> dict[str, float | None]:
     sunshine = _float(hourly, "sunshine_duration", index)
     # Keep nulls as null; do not imply a sunny or cloudy hour when data is missing.
+    is_day_value = _float(hourly, "is_day", index)
     return {
         "sunshine": sunshine,
         "cloud": _float(hourly, "cloud_cover", index),
+        "low_cloud": _float(hourly, "cloud_cover_low", index),
+        "mid_cloud": _float(hourly, "cloud_cover_mid", index),
+        "high_cloud": _float(hourly, "cloud_cover_high", index),
         "rain": _float(hourly, "precipitation", index),
         "temp": _float(hourly, "temperature_2m", index),
+        "humidity": _float(hourly, "relative_humidity_2m", index),
+        "dew_point": _float(hourly, "dew_point_2m", index),
+        "shortwave": _float(hourly, "shortwave_radiation", index),
+        "weather_code": _float(hourly, "weather_code", index),
+        "is_day": bool(is_day_value) if is_day_value is not None else None,
     }
 
 
@@ -280,6 +289,12 @@ def produce_model(
                     cloud_cover_pct=row.get("cloud"),
                     precipitation_mm=row.get("rain"),
                     is_interpolated=interpolated,
+                    low_cloud_cover_pct=row.get("low_cloud"),
+                    mid_cloud_cover_pct=row.get("mid_cloud"),
+                    high_cloud_cover_pct=row.get("high_cloud"),
+                    relative_humidity_pct=row.get("humidity"),
+                    shortwave_radiation_wm2=row.get("shortwave"),
+                    is_day=row.get("is_day"),
                 )
             )
             if valid_at in grid_times:
@@ -288,6 +303,11 @@ def produce_model(
                     round(row["cloud"], 1) if row.get("cloud") is not None else None,
                     round(row["rain"], 2) if row.get("rain") is not None else None,
                     int(interpolated),
+                    round(row["low_cloud"], 1) if row.get("low_cloud") is not None else None,
+                    round(row["mid_cloud"], 1) if row.get("mid_cloud") is not None else None,
+                    round(row["high_cloud"], 1) if row.get("high_cloud") is not None else None,
+                    round(row["humidity"], 1) if row.get("humidity") is not None else None,
+                    round(row["shortwave"], 1) if row.get("shortwave") is not None else None,
                 ])
         if valid_at in grid_times:
             write_json(
@@ -359,6 +379,14 @@ def produce_model(
                     precipitation_mm=item.get("rain"),
                     temperature_c=item.get("temp"),
                     is_interpolated=spec.native_step_seconds(max(0, lead_hours)) > 3600,
+                    low_cloud_cover_pct=item.get("low_cloud"),
+                    mid_cloud_cover_pct=item.get("mid_cloud"),
+                    high_cloud_cover_pct=item.get("high_cloud"),
+                    relative_humidity_pct=item.get("humidity"),
+                    dew_point_c=item.get("dew_point"),
+                    shortwave_radiation_wm2=item.get("shortwave"),
+                    weather_code=item.get("weather_code"),
+                    is_day=item.get("is_day"),
                 )
             )
         city_window = find_city_sunshine_window(city_samples)
@@ -389,6 +417,14 @@ def produce_model(
                             "cloud_cover_pct": row.cloud_cover_pct,
                             "precipitation_mm": row.precipitation_mm,
                             "temperature_c": row.temperature_c,
+                            "low_cloud_cover_pct": row.low_cloud_cover_pct,
+                            "mid_cloud_cover_pct": row.mid_cloud_cover_pct,
+                            "high_cloud_cover_pct": row.high_cloud_cover_pct,
+                            "relative_humidity_pct": row.relative_humidity_pct,
+                            "dew_point_c": row.dew_point_c,
+                            "shortwave_radiation_wm2": row.shortwave_radiation_wm2,
+                            "weather_code": row.weather_code,
+                            "is_day": row.is_day,
                             "is_interpolated": row.is_interpolated,
                         }
                         for row in city_samples
