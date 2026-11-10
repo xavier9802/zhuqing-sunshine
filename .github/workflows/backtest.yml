@@ -41,10 +41,14 @@ jobs:
           python -m pytest -q sitegen/tests
       - name: Run historical verification
         run: |
+          # Scheduled checks sample more runs; pushes use a quicker audit.
+          RUNS=12
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            RUNS=24
+          fi
           python -m sitegen.backtest \
             --start-date 2024-04-15 \
-            --end-date 2026-09-15 \
-            --max-runs 12 \
+            --max-runs "$RUNS" \
             --max-stations 8 \
             --output artifacts/forecast-backtest.json
       - name: Upload verification report

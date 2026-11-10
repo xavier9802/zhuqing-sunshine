@@ -39,3 +39,7 @@ The first successful pipeline execution used 12 archived HRES initialisations an
 New quality gates require at least 200 station-days, at least four independently located usable stations, 50 station-days for each of the 1–3 day leads, and coverage of winter/spring/summer/autumn. Passing these sampling checks still requires independent holdout observations and actual sunshine-duration/solar-radiation measurements before any operational calibration or probability claim.
 
 The cloud-cover MAE averages per-station-day hourly errors equally, not all raw hourly pairs equally. Note that the 2024–2026 period includes an ECMWF IFS cycle change; formal calibration should stratify skill by model cycle.
+
+## Repeated verification
+
+The default end date advances automatically to 14 days before execution (to leave time for station-year reports); the default branch's monthly schedule evaluates up to 24 historical run dates. Branch CI uses 12 run dates to limit provider requests. The observations are not sufficient for a true sunshine-duration calibration without independent station sunshine-duration instruments.

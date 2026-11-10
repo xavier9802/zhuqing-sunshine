@@ -895,7 +895,7 @@ def main() -> None:
         description="Verify archived ECMWF sunshine/sky-condition forecasts against NOAA station reports"
     )
     parser.add_argument("--start-date", type=date.fromisoformat, default=date(2024, 4, 15))
-    parser.add_argument("--end-date", type=date.fromisoformat, default=date(2026, 9, 15))
+    parser.add_argument("--end-date", type=date.fromisoformat, default=datetime.now(UTC).date() - timedelta(days=14))
     parser.add_argument("--max-runs", type=int, default=16)
     parser.add_argument("--max-stations", type=int, default=8)
     parser.add_argument("--cache-dir", type=Path, default=Path(".cache/zhuqing"))
