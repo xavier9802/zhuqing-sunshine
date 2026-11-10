@@ -2,7 +2,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
-
 from shapely.geometry import box
 
 from sitegen.backtest import (
