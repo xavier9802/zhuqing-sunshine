@@ -6,6 +6,12 @@ on:
   schedule:
     - cron: "17 */4 * * *"
   workflow_dispatch:
+    inputs:
+      force_github_pages:
+        description: "Force the GitHub Pages rollback deployment even when CloudBase is configured"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,6 +25,7 @@ concurrency:
 jobs:
   build:
     name: Collect real forecasts and export static site
+    if: ${{ vars.CLOUDBASE_ENV_ID == '' || inputs.force_github_pages == true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
