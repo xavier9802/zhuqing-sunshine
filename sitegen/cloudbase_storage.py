@@ -34,6 +34,7 @@ class CloudBaseStorageClient:
         service_role_key: str,
         bucket_id: str,
         *,
+        public_base_url: str,
         api_base_url: str | None = None,
         http_client: httpx.Client | None = None,
         attempts: int = 4,
@@ -50,6 +51,9 @@ class CloudBaseStorageClient:
 
         self.env_id = env_id
         self.bucket_id = bucket_id
+        if not public_base_url.strip():
+            raise ValueError("CloudBase Storage public base URL is required")
+        self.public_base_url = public_base_url.rstrip("/")
         self.base_url = (
             api_base_url or f"https://{env_id}.api.tcloudbasegateway.com"
         ).rstrip("/")
@@ -74,7 +78,8 @@ class CloudBaseStorageClient:
         return f"{self.base_url}/v1/storages/object/{bucket}/{key}"
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
-        headers = dict(self.headers)
+        authenticated = kwargs.pop("authenticated", True)
+        headers = dict(self.headers) if authenticated else {}
         headers.update(kwargs.pop("headers", {}) or {})
         for attempt in range(self.attempts):
             try:
@@ -105,7 +110,16 @@ class CloudBaseStorageClient:
         raise CloudBaseStorageError(f"Request retry loop exhausted: {method} {url}")
 
     def get_json(self, object_name: str) -> dict[str, Any] | None:
-        response = self._request("GET", self._object_url(object_name))
+        # PG Storage's public-object download route is served through the stable
+        # getPublicUrl/CDN base; the management API route is intentionally not used.
+        url = f"{self.public_base_url}/{quote(object_name, safe='/')}"
+        response = self._request(
+            "GET",
+            url,
+            authenticated=False,
+            params={"v": str(int(time.time()))},
+            headers={"Cache-Control": "no-cache"},
+        )
         if response.status_code == 404:
             return None
         response.raise_for_status()
