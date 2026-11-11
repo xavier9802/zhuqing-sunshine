@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Sun, MapPin } from "lucide-react";
 import { useParams } from "next/navigation";
-import { dataUrl } from "../../lib/static-data";
+import { dataUrl, resolveDataBase } from "../../lib/static-data";
 
 
 type CityData = {
@@ -46,7 +46,8 @@ export default function CityPage() {
     const controller=new AbortController();
     setLoading(true);
     setError("");
-    fetch(dataUrl("city/" + selectedModel + "/" + params.slug + ".json"),{cache:"no-store",signal:controller.signal})
+    resolveDataBase(controller.signal)
+      .then(base=>fetch(dataUrl("city/" + selectedModel + "/" + params.slug + ".json",base),{cache:"no-store",signal:controller.signal}))
       .then(r=>{if(!r.ok) throw new Error("当前没有该城市的可用预报数据"); return r.json();})
       .then(data=>{setCity(data.city);setModel(data.model);})
       .catch(err=>{if(err instanceof Error&&err.name!=="AbortError")setError(err.message);})
@@ -57,7 +58,7 @@ export default function CityPage() {
   return <main className="shell city-page">
     <Link href="/" className="back-link"><ArrowLeft size={14}/> 返回四川盆地总览</Link>
     {loading&&<div className="loading-line"/>}
-    {error&&<div className="error-note">{error}。请查看 GitHub Actions 的预报采集任务。</div>}
+    {error&&<div className="error-note">{error}。请查看追晴云端的预报采集任务。</div>}
     {city&&<>
       <section className="city-hero">
         <label style={{fontSize:10,color:"#84959e",display:"block",marginBottom:12}} htmlFor="city-model">预报模型</label>
