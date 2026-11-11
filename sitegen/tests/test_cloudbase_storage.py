@@ -42,13 +42,11 @@ def test_upload_tree_uses_versioned_paths_and_public_cache_headers(tmp_path: Pat
     assert any(request.headers["content-type"] == "application/geo+json" for request in seen)
 
 
-def test_upload_json_uses_put_and_falls_back_to_post_when_missing() -> None:
-    methods: list[str] = []
+def test_upload_json_uses_create_or_replace_header() -> None:
+    requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        methods.append(request.method)
-        if request.method == "PUT":
-            return httpx.Response(404, json={"message": "not found"}, request=request)
+        requests.append(request)
         return httpx.Response(200, json={"ok": True}, request=request)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
@@ -59,7 +57,9 @@ def test_upload_json_uses_put_and_falls_back_to_post_when_missing() -> None:
         )
         storage.upload_json("zhuqing/latest.json", {"data_prefix": "snapshots/run/data"})
 
-    assert methods == ["PUT", "POST"]
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
+    assert requests[0].headers["x-upsert"] == "true"
 
 
 def test_create_json_does_not_overwrite_existing_lock() -> None:
