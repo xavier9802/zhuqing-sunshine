@@ -1,0 +1,9 @@
+{
+  "triggers": [
+    {
+      "name": "refreshForecastEvery4Hours",
+      "type": "timer",
+      "config": "0 17 */4 * * * *"
+    }
+  ]
+}
