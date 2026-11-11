@@ -59,15 +59,17 @@ def main(event: dict[str, Any] | None, context: Any) -> dict[str, Any]:
     env_id = os.getenv("TCB_ENV_ID", "").strip()
     service_role_key = os.getenv("TCB_SERVICE_ROLE_KEY", "").strip()
     bucket_id = os.getenv("TCB_STORAGE_BUCKET", "zhuqing-data").strip()
-    if not env_id or not service_role_key:
+    public_base_url = os.getenv("TCB_STORAGE_PUBLIC_BASE_URL", "").strip()
+    if not env_id or not service_role_key or not public_base_url:
         raise RuntimeError(
-            "Set TCB_ENV_ID and TCB_SERVICE_ROLE_KEY in the CloudBase function config"
+            "Set TCB_ENV_ID, TCB_SERVICE_ROLE_KEY and TCB_STORAGE_PUBLIC_BASE_URL in the CloudBase function config"
         )
 
     client = CloudBaseStorageClient(
         env_id=env_id,
         service_role_key=service_role_key,
         bucket_id=bucket_id,
+        public_base_url=public_base_url,
         api_base_url=os.getenv("TCB_API_BASE_URL") or None,
     )
     now = datetime.now(UTC)
