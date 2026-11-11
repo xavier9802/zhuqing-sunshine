@@ -156,26 +156,19 @@ class CloudBaseStorageClient:
         cache_control: str,
         overwrite: bool = False,
     ) -> None:
-        method = "PUT" if overwrite else "POST"
+        headers = {
+            "Content-Type": content_type,
+            "Cache-Control": cache_control,
+        }
+        if overwrite:
+            # PG Storage POST supports x-upsert for create-or-replace semantics.
+            headers["x-upsert"] = "true"
         response = self._request(
-            method,
+            "POST",
             self._object_url(object_name),
             content=content,
-            headers={
-                "Content-Type": content_type,
-                "Cache-Control": cache_control,
-            },
+            headers=headers,
         )
-        if overwrite and response.status_code == 404:
-            response = self._request(
-                "POST",
-                self._object_url(object_name),
-                content=content,
-                headers={
-                    "Content-Type": content_type,
-                    "Cache-Control": cache_control,
-                },
-            )
         response.raise_for_status()
 
     def upload_json(
