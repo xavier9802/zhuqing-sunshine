@@ -11,13 +11,17 @@ type GridGeometry = FeatureCollection<Geometry, GeometryProps>;
 type GridSnapshot = {
   valid_at: string;
   // Index is aligned with geography/grid.geojson; geometry is never duplicated.
-  values: Array<[number | null, number | null, number | null, number]>;
+  values: Array<[
+    number | null, number | null, number | null, number,
+    number | null, number | null, number | null, number | null,
+    number | null, number | null
+  ]>;
 };
-type Props = { gridFile: string | null };
+type Props = { gridFile: string | null; dataBase: string | null };
 
 const emptyGeoJSON: FeatureCollection = { type: "FeatureCollection", features: [] };
 
-export default function SunshineMap({ gridFile }: Props) {
+export default function SunshineMap({ gridFile, dataBase }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -103,8 +107,9 @@ export default function SunshineMap({ gridFile }: Props) {
   }, []);
 
   useEffect(() => {
+    if (!dataBase) return;
     const controller = new AbortController();
-    fetch(dataUrl("geography/grid.geojson"), {
+    fetch(dataUrl("geography/grid.geojson", dataBase), {
       cache: "no-store", signal: controller.signal,
     })
       .then(response => {
@@ -121,10 +126,10 @@ export default function SunshineMap({ gridFile }: Props) {
         if (error instanceof Error && error.name !== "AbortError") setMapError(true);
       });
     return () => controller.abort();
-  }, []);
+  }, [dataBase]);
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
+    if (!mapReady || !mapRef.current || !dataBase) return;
     const source = mapRef.current.getSource("sunshine-cells") as maplibregl.GeoJSONSource;
     if (!gridFile || !geometry?.features.length) {
       source?.setData(emptyGeoJSON);
@@ -132,7 +137,7 @@ export default function SunshineMap({ gridFile }: Props) {
     }
 
     const controller = new AbortController();
-    fetch(dataUrl(gridFile), { cache: "no-store", signal: controller.signal })
+    fetch(dataUrl(gridFile, dataBase), { cache: "no-store", signal: controller.signal })
       .then(response => {
         if (!response.ok) throw new Error("Missing grid forecast snapshot");
         return response.json() as Promise<GridSnapshot>;
@@ -167,7 +172,7 @@ export default function SunshineMap({ gridFile }: Props) {
         }
       });
     return () => controller.abort();
-  }, [gridFile, geometry, mapReady]);
+  }, [gridFile, geometry, mapReady, dataBase]);
 
   return (
     <>
@@ -176,7 +181,7 @@ export default function SunshineMap({ gridFile }: Props) {
       {mapError && <div className="map-overlay">
         <span aria-hidden="true" style={{ fontSize: 22 }}>⌖</span>
         <b>地图数据暂时无法加载</b>
-        <span>检查网络或最近一次 GitHub Pages 数据更新记录。</span>
+        <span>检查网络或追晴云端最近一次数据更新记录。</span>
       </div>}
     </>
   );
