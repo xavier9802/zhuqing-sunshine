@@ -101,11 +101,18 @@ jobs:
           set -euo pipefail
           tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY"
 
-      - name: Create or update the public forecast Storage bucket and read policy
+      - name: Create or update the public forecast Storage bucket
         shell: bash
         run: |
           set -euo pipefail
           tcb db execute -e "$CLOUDBASE_ENV_ID" --sql "$(cat cloudbase/sql/001_zhuqing_data_bucket.sql)" --json
+
+      - name: Apply the public read-only Storage policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          tcb db execute -e "$CLOUDBASE_ENV_ID" --role postgres --sql "DROP POLICY IF EXISTS zhuqing_data_public_read ON storage.objects" --json
+          tcb db execute -e "$CLOUDBASE_ENV_ID" --role postgres --sql "$(cat cloudbase/sql/002_zhuqing_data_public_read.sql)" --json
 
       - name: Deploy scheduled forecast function
         run: |
