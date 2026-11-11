@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.cloudbase.net/cli/cloudbaserc.schema.json",
+  "envId": "{{env.CLOUDBASE_ENV_ID}}",
+  "functionRoot": ".cloudbase/functions",
+  "functions": [
+    {
+      "name": "zhuqingForecastRefresh",
+      "runtime": "Python3.11",
+      "handler": "index.main",
+      "timeout": 900,
+      "memorySize": 3072,
+      "installDependency": false,
+      "triggers": [
+        {
+          "name": "refresh-every-four-hours",
+          "type": "timer",
+          "config": "0 17 */4 * * * *"
+        }
+      ],
+      "envVariables": {
+        "TCB_ENV_ID": "{{tcb.envId}}",
+        "TCB_SERVICE_ROLE_KEY": "{{env.CLOUDBASE_SERVICE_ROLE_KEY}}",
+        "TCB_STORAGE_BUCKET": "zhuqing-data",
+        "OPEN_METEO_USAGE": "non_commercial",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  ]
+}
