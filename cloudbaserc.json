@@ -1,0 +1,19 @@
+{
+  "envId": "${TCB_ENV_ID}",
+  "functionRoot": "cloudfunctions",
+  "functions": [
+    {
+      "name": "forecastIngest",
+      "timeout": 900,
+      "memorySize": 3072,
+      "runtime": "Python3.11",
+      "handler": "index.main",
+      "installDependency": true,
+      "envVariables": {
+        "TCB_ENV": "${TCB_ENV_ID}",
+        "OPEN_METEO_USAGE": "non_commercial",
+        "FORECAST_BATCH_SIZE": "20"
+      }
+    }
+  ]
+}
