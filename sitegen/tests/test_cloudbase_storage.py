@@ -24,6 +24,7 @@ def test_upload_tree_uses_versioned_paths_and_public_cache_headers(tmp_path: Pat
     with httpx.Client(transport=transport) as http:
         storage = CloudBaseStorageClient(
             "env-test", "server-key", "zhuqing-data",
+            public_base_url="https://cdn.example.com/zhuqing-data",
             http_client=http, sleep=lambda _seconds: None,
         )
         names = storage.upload_tree(
@@ -53,6 +54,7 @@ def test_upload_json_uses_put_and_falls_back_to_post_when_missing() -> None:
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         storage = CloudBaseStorageClient(
             "env-test", "server-key", "zhuqing-data",
+            public_base_url="https://cdn.example.com/zhuqing-data",
             http_client=http, sleep=lambda _seconds: None,
         )
         storage.upload_json("zhuqing/latest.json", {"data_prefix": "snapshots/run/data"})
@@ -68,6 +70,7 @@ def test_create_json_does_not_overwrite_existing_lock() -> None:
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         storage = CloudBaseStorageClient(
             "env-test", "server-key", "zhuqing-data",
+            public_base_url="https://cdn.example.com/zhuqing-data",
             http_client=http, sleep=lambda _seconds: None,
         )
         created = storage.create_json("zhuqing/locks/slot.json", {"slot": "slot"})
@@ -82,6 +85,7 @@ def test_get_json_returns_none_for_missing_object() -> None:
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         storage = CloudBaseStorageClient(
             "env-test", "server-key", "zhuqing-data",
+            public_base_url="https://cdn.example.com/zhuqing-data",
             http_client=http, sleep=lambda _seconds: None,
         )
         assert storage.get_json("zhuqing/latest.json") is None
@@ -98,6 +102,7 @@ def test_delete_objects_batches_at_one_hundred() -> None:
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         storage = CloudBaseStorageClient(
             "env-test", "server-key", "zhuqing-data",
+            public_base_url="https://cdn.example.com/zhuqing-data",
             http_client=http, sleep=lambda _seconds: None,
         )
         storage.delete_objects([f"snapshot/{index}.json" for index in range(205)])
