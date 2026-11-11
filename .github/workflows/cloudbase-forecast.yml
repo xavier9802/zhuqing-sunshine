@@ -1,0 +1,57 @@
+name: Deploy and run Zhuqing CloudBase forecast
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_function:
+        description: Deploy/update the CloudBase function before invoking it
+        required: true
+        type: boolean
+        default: true
+      run_forecast:
+        description: Run one live forecast ingest after deployment
+        required: true
+        type: boolean
+        default: false
+  schedule:
+    - cron: "37 */4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zhuqing-cloudbase-forecast
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TCB_ENV_ID: ${{ secrets.TCB_ENV_ID }}
+      TCB_SECRET_ID: ${{ secrets.TCB_SECRET_ID }}
+      TCB_SECRET_KEY: ${{ secrets.TCB_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate CloudBase credentials
+        run: |
+          test -n "$TCB_ENV_ID" || (echo "Missing GitHub Secret TCB_ENV_ID" && exit 1)
+          test -n "$TCB_SECRET_ID" || (echo "Missing GitHub Secret TCB_SECRET_ID" && exit 1)
+          test -n "$TCB_SECRET_KEY" || (echo "Missing GitHub Secret TCB_SECRET_KEY" && exit 1)
+      - name: Install CloudBase CLI
+        run: npm install --global @cloudbase/cli
+      - name: Configure CloudBase credentials
+        run: |
+          tcb login --apiKeyId "$TCB_SECRET_ID" --apiKey "$TCB_SECRET_KEY"
+      - name: Deploy scheduled forecast function
+        if: github.event_name == 'schedule' || inputs.deploy_function
+        run: tcb fn deploy forecastIngest --envId "$TCB_ENV_ID" --force
+      - name: Run a live forecast snapshot
+        if: github.event_name == 'schedule' || inputs.run_forecast
+        run: tcb fn invoke forecastIngest --envId "$TCB_ENV_ID"
