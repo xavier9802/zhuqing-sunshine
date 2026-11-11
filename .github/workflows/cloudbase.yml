@@ -95,6 +95,15 @@ jobs:
       - name: Install CloudBase CLI
         run: npm install -g @cloudbase/cli@latest
 
+      - name: Materialize private CloudBase CLI variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf 'CLOUDBASE_ENV_ID=%s\\n' "$CLOUDBASE_ENV_ID" > .env.local
+          printf 'CLOUDBASE_SERVICE_ROLE_KEY=%s\\n' "$CLOUDBASE_SERVICE_ROLE_KEY" >> .env.local
+          printf 'CLOUDBASE_STORAGE_PUBLIC_BASE_URL=%s\\n' "$CLOUDBASE_STORAGE_PUBLIC_BASE_URL" >> .env.local
+
       - name: Log in to Tencent Cloud
         shell: bash
         run: |
@@ -123,10 +132,14 @@ jobs:
       - name: Deploy static website
         run: |
           tcb hosting deploy ./apps/web/out / \
-            -e "$CLOUDBASE_ENV_ID" --yes
+            -e "$CLOUDBASE_ENV_ID" --verify --prune --yes
 
       - name: Run first live forecast on request
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_initial_forecast == true }}
         timeout-minutes: 20
         run: |
           tcb fn invoke zhuqingForecastRefresh --env-id "$CLOUDBASE_ENV_ID" --json
+
+      - name: Remove temporary CloudBase CLI secrets
+        if: always()
+        run: rm -f .env.local
