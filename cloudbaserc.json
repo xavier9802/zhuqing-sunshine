@@ -21,6 +21,7 @@
         "TCB_ENV_ID": "{{tcb.envId}}",
         "TCB_SERVICE_ROLE_KEY": "{{env.CLOUDBASE_SERVICE_ROLE_KEY}}",
         "TCB_STORAGE_BUCKET": "zhuqing-data",
+        "TCB_STORAGE_PUBLIC_BASE_URL": "{{env.CLOUDBASE_STORAGE_PUBLIC_BASE_URL}}",
         "OPEN_METEO_USAGE": "non_commercial",
         "LOG_LEVEL": "INFO"
       }
