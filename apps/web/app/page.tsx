@@ -7,7 +7,7 @@ import {
   RadioTower, Sun, Waves
 } from "lucide-react";
 import SunshineMap from "./components/SunshineMap";
-import { dataUrl } from "./lib/static-data";
+import { dataUrl, resolveDataBase } from "./lib/static-data";
 
 const MODELS = [
   { id: "ecmwf_ifs", name: "ECMWF IFS HRES · 9 km" },
@@ -107,35 +107,37 @@ export default function Home() {
   const [selectedTime, setSelectedTime] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [dataBase, setDataBase] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    Promise.all([
-      fetch(dataUrl("overview/" + model + ".json"), { cache: "no-store", signal: controller.signal }).then(r => {
-        if (!r.ok) throw new Error("日照预测静态快照尚未生成");
+    resolveDataBase(controller.signal).then(base => Promise.all([
+      fetch(dataUrl("overview/" + model + ".json", base), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("日照预测快照暂不可用");
         return r.json() as Promise<Overview>;
       }),
-      fetch(dataUrl("cities/" + model + ".json"), { cache: "no-store", signal: controller.signal }).then(r => {
-        if (!r.ok) throw new Error("城市预测静态快照尚未生成");
+      fetch(dataUrl("cities/" + model + ".json", base), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("城市预测快照暂不可用");
         return r.json() as Promise<{ cities: City[] }>;
       }),
-      fetch(dataUrl("status.json"), { cache: "no-store", signal: controller.signal }).then(r => {
-        if (!r.ok) throw new Error("数据状态静态快照尚未生成");
+      fetch(dataUrl("status.json", base), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("数据状态快照暂不可用");
         return r.json() as Promise<DataStatus>;
       }),
-      fetch(dataUrl("consensus.json"), { cache: "no-store", signal: controller.signal }).then(r => {
-        if (!r.ok) throw new Error("多模型综合判断尚未生成");
+      fetch(dataUrl("consensus.json", base), { cache: "no-store", signal: controller.signal }).then(r => {
+        if (!r.ok) throw new Error("多模型综合判断暂不可用");
         return r.json() as Promise<Consensus>;
       }),
     ]).then(([nextOverview, cityData, nextStatus, nextConsensus]) => {
+      setDataBase(base);
       setOverview(nextOverview);
       setCities(cityData.cities || []);
       setDataStatus(nextStatus);
       setConsensus(nextConsensus);
       setSelectedTime(nextOverview.hourly?.[0]?.valid_at || "");
-    }).catch(err => {
+    })).catch(err => {
       if (err instanceof Error && err.name !== "AbortError") setError(err.message || "暂时无法连接追晴服务");
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false);
@@ -175,7 +177,7 @@ export default function Home() {
         <div className="sun-art" aria-hidden="true"><div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="sun-disc"><Sun size={52}/></div><div className="cloud cloud-a"/><div className="cloud cloud-b"/><small>SUNLIGHT WINDOW</small></div>
       </section>
 
-      {error && <div className="error-note">{error}。请查看 GitHub Actions 最近一次数据更新任务。</div>}
+      {error && <div className="error-note">{error}。请查看追晴云端最近一次数据更新记录。</div>}
       {loading && <div className="loading-line"/>}
       {isStale && <div className="warning-note">天气快照超过 12 小时未更新，当前结果可能过期，请以模型初始化时间和天气实况为准。</div>}
 
@@ -214,7 +216,7 @@ export default function Home() {
           </div>
         </div>
         <div className="map-stage">
-          <SunshineMap gridFile={selectedHour?.grid_file ?? null}/>
+          <SunshineMap gridFile={selectedHour?.grid_file ?? null} dataBase={dataBase}/>
           {(!overview?.hourly?.length || !overview.model) && <div className="map-overlay"><MapPinned size={25}/><b>{loading ? "正在读取日照网格" : "日照网格尚未接入"}</b><span>{overview?.message || "完成地理数据导入和模型预报采集后，这里将展示四川盆地逐网格日照分布。"}</span></div>}
         </div>
         <div className="row" style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,marginTop:12,flexWrap:"wrap"}}>

@@ -2,7 +2,7 @@
 
 > 下一次太阳，什么时候来？
 
-追晴（Sunshine Forecast）是面向四川盆地的非商业日照预测实验站点。采用 **Next.js 静态导出 + GitHub Actions 定时采集 + GitHub Pages**，没有常驻 API、PostgreSQL、PostGIS、Redis 或 Docker。
+追晴（Sunshine Forecast）是面向四川盆地的非商业日照预测实验站点。目标生产架构为 **Next.js 静态网站托管 + Python 3.11 CloudBase 定时云函数 + PG 模式云存储**。气象算法仍由现有 Python 代码驱动，不引入常驻服务器、Redis 或业务数据库。GitHub Pages 保留为可手动启用的回滚站点。
 
 ## 版本状态
 
@@ -27,7 +27,7 @@ https://xavier9802.github.io/zhuqing-sunshine/
 - 显示模型初始化、预测有效时次、采集时间、插值时次与来源。
 - 缺失模型时显示缺失或降级状态，绝不产生伪造的放晴概率或预测数值。
 
-所有天气数据由 GitHub Actions 服务器采集；打开网页的用户**不会直接访问 Open-Meteo**。
+天气数据由 CloudBase 定时云函数采集、计算并发布为版本化 JSON 快照；打开网页的用户**不会直接访问 Open-Meteo**。CloudBase 前端先读取 `zhuqing/latest.json`，再加载对应版本的不可变数据文件。
 
 ## 仓库结构
 
@@ -76,17 +76,21 @@ NEXT_PUBLIC_BASE_PATH=/zhuqing-sunshine npm run build:web
 
 构建后的完整静态网站位于 apps/web/out/。
 
-## GitHub Pages 自动更新
+## CloudBase 自动更新
 
-在 main 默认分支上，.github/workflows/pages.yml 会在这些时机执行：
+CloudBase 生产部署配置位于：
 
-- push 到 main；
-- 在 Actions 页面手动运行；
-- 每 4 小时在 UTC 分钟 17 尝试自动刷新。
+- `.github/workflows/cloudbase.yml` — GitHub Actions 构建并部署 CloudBase 云函数与静态网站；
+- `cloudbaserc.json` — Python 3.11 云函数、900 秒超时、3072 MB 内存和四小时定时触发器；
+- `functions/zhuqingForecastRefresh/` — 完整三模型采集、预测计算和快照发布入口；
+- `sitegen/cloudbase_storage.py` — PG 模式 CloudBase Storage 上传、版本切换和旧快照清理；
+- `cloudbase/sql/001_zhuqing_data_bucket.sql` — 创建公开只读的 `zhuqing-data` Bucket。
 
-每次成功生成的盆地与城市预报汇总另存为 GitHub Actions Artifact，保留14天用于短期核对，不存数据库或重复网格几何。定时任务在 GitHub Actions 不保证准点执行。若所有模型不可用，定时任务失败并保留上次成功发布的网站；页面必须结合其“数据采集时间”和模型时次判断新鲜度。
+CloudBase 定时触发器每 4 小时触发一次（七字段 Cron：`0 17 */4 * * * *`）。每轮先生成完整快照，再上传版本化文件，最后更新 `zhuqing/latest.json`；如果全部模型失败，不切换版本，继续保留上次成功数据。正常只保留最近两份完整快照。
 
-GitHub Pages 首次发布需要在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**。详见 docs/ARCHITECTURE.md。
+首次部署前需要配置 GitHub Actions Variables / Secrets，并按 [CloudBase 部署指南](docs/CLOUDBASE_DEPLOYMENT.md) 设置 PG Storage 公共读取与 CORS。CloudBase 环境未配置时，GitHub Pages 仍按原方式运行；配置 `CLOUDBASE_ENV_ID` 与存储公开 URL 后，GitHub Pages 自动停止重复采集。必要时可在 Pages 工作流手动选择 `force_github_pages` 回滚。
+
+本地开发、历史回测与 GitHub Actions CI 仍保留；算法代码不因部署平台迁移而重写。
 
 ## 使用范围及数据风险
 

@@ -19,3 +19,8 @@ venv/
 .vscode/
 .cache/
 apps/web/public/data/
+
+.cloudbase/
+cloudbaserc.local.json
+.env.local
+.env.*.local

@@ -1,0 +1,145 @@
+name: Deploy Zhuqing to Tencent CloudBase
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "sitegen/**"
+      - "functions/**"
+      - "cloudbase/**"
+      - "cloudbaserc.json"
+      - "scripts/package_cloudbase.py"
+      - ".github/workflows/cloudbase.yml"
+  workflow_dispatch:
+    inputs:
+      run_initial_forecast:
+        description: "Run the first real three-model forecast immediately after deployment"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudbase-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy CloudBase function + static website
+    if: ${{ vars.CLOUDBASE_ENV_ID != '' && vars.CLOUDBASE_STORAGE_PUBLIC_BASE_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDBASE_ENV_ID: ${{ vars.CLOUDBASE_ENV_ID }}
+      CLOUDBASE_STORAGE_PUBLIC_BASE_URL: ${{ vars.CLOUDBASE_STORAGE_PUBLIC_BASE_URL }}
+      CLOUDBASE_SERVICE_ROLE_KEY: ${{ secrets.CLOUDBASE_SERVICE_ROLE_KEY }}
+      TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+      TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11 (CloudBase runtime target)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: sitegen/requirements.txt
+
+      - name: Verify CloudBase deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDBASE_ENV_ID"
+          test -n "$CLOUDBASE_STORAGE_PUBLIC_BASE_URL"
+          test -n "$CLOUDBASE_SERVICE_ROLE_KEY"
+          test -n "$TENCENTCLOUD_SECRET_ID"
+          test -n "$TENCENTCLOUD_SECRET_KEY"
+
+      - name: Install forecast test dependencies
+        run: python -m pip install -r sitegen/requirements.txt
+
+      - name: Test forecast and CloudBase storage code
+        run: |
+          ruff check sitegen
+          python -m pytest -q sitegen/tests
+
+      - name: Package Python 3.11 CloudBase function
+        run: python scripts/package_cloudbase.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build static frontend for CloudBase
+        env:
+          NEXT_PUBLIC_BASE_PATH: ""
+          NEXT_PUBLIC_DATA_BASE_URL: ${{ vars.CLOUDBASE_STORAGE_PUBLIC_BASE_URL }}
+        run: |
+          python -m sitegen.build --mode placeholder --output apps/web/public
+          npm run lint:web
+          npm run typecheck:web
+          npm run build:web
+          test -f apps/web/out/index.html
+          test -f apps/web/out/city/chengdu/index.html
+          test -f apps/web/out/city/chongqing/index.html
+
+      - name: Install CloudBase CLI
+        run: npm install -g @cloudbase/cli@latest
+
+      - name: Materialize private CloudBase CLI variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf 'CLOUDBASE_ENV_ID=%s\\n' "$CLOUDBASE_ENV_ID" > .env.local
+          printf 'CLOUDBASE_SERVICE_ROLE_KEY=%s\\n' "$CLOUDBASE_SERVICE_ROLE_KEY" >> .env.local
+          printf 'CLOUDBASE_STORAGE_PUBLIC_BASE_URL=%s\\n' "$CLOUDBASE_STORAGE_PUBLIC_BASE_URL" >> .env.local
+
+      - name: Log in to Tencent Cloud
+        shell: bash
+        run: |
+          set -euo pipefail
+          tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY"
+
+      - name: Create or update the public forecast Storage bucket
+        shell: bash
+        run: |
+          set -euo pipefail
+          tcb db execute -e "$CLOUDBASE_ENV_ID" --sql "$(cat cloudbase/sql/001_zhuqing_data_bucket.sql)" --json
+
+      - name: Apply the public read-only Storage policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          tcb db execute -e "$CLOUDBASE_ENV_ID" --role postgres --sql "DROP POLICY IF EXISTS zhuqing_data_public_read ON storage.objects" --json
+          tcb db execute -e "$CLOUDBASE_ENV_ID" --role postgres --sql "$(cat cloudbase/sql/002_zhuqing_data_public_read.sql)" --json
+
+      - name: Deploy scheduled forecast function
+        run: |
+          tcb fn deploy zhuqingForecastRefresh \
+            --env-id "$CLOUDBASE_ENV_ID" \
+            --force --yes --install-dependency false
+
+      - name: Deploy static website
+        run: |
+          tcb hosting deploy ./apps/web/out / \
+            -e "$CLOUDBASE_ENV_ID" --verify --prune --yes
+
+      - name: Run first live forecast on request
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_initial_forecast == true }}
+        timeout-minutes: 20
+        run: |
+          tcb fn invoke zhuqingForecastRefresh --env-id "$CLOUDBASE_ENV_ID" --json
+
+      - name: Remove temporary CloudBase CLI secrets
+        if: always()
+        run: rm -f .env.local

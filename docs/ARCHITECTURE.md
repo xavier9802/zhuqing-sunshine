@@ -77,3 +77,21 @@ GitHub Pages 站点 URL 为预期地址，完成部署前不能声称已经上�
 - 2026 年作为时间外留出年份；2024–2025 年仅用于估计辐射偏差。研究性订正不自动写入生产快照。
 - 目前仅 3 个机场站提供足够云况观测，未达到至少 4 个独立观测站的研究门槛。SYNOP 云量字段缺失时必须保留为缺测。
 - 在获取更多独立地面云况/日照观测前，不修改线上晴天阈值，不发布概率校准或盆地级准确率。
+
+
+## CloudBase runtime migration (V1.2+)
+
+When the repository has `CLOUDBASE_ENV_ID` and `CLOUDBASE_STORAGE_PUBLIC_BASE_URL` configured, the CloudBase workflow becomes the production deployment path:
+
+1. A single Python 3.11 CloudBase timer function runs `sitegen.build.generate` for the existing three ECMWF models. The function uses the same production algorithm and data contracts as the GitHub Pages pipeline.
+2. The function writes temporary build output, validates that at least one model is available, and uploads a complete immutable snapshot to the PG-mode Storage Bucket `zhuqing-data`.
+3. It updates `zhuqing/latest.json` only after every snapshot object has uploaded. The manifest points to a versioned `zhuqing/snapshots/<run_id>/data` prefix.
+4. The frontend first resolves the manifest and then fetches status, consensus, city, geography and hourly grid files from the same immutable prefix. When `NEXT_PUBLIC_DATA_BASE_URL` is unset, local development and GitHub Pages continue using relative `/data` paths.
+5. Two complete snapshots are retained for rollback. The previous-previous snapshot is removed only after the new manifest has been published.
+6. If all models fail, the function throws before changing the manifest. If only some models succeed, it publishes the existing explicit degraded status. No fake forecast data is generated.
+
+The timer uses the seven-field CloudBase cron expression `0 17 */4 * * * *`. The function is configured for Python 3.11, 900 seconds and 3072 MB. This is intentionally one function because the most recent complete GitHub Pages forecast build finished in about four minutes; the CloudBase runtime must still be measured on its first real run.
+
+No custom business database tables are required. PG-mode Storage uses its own bucket/object metadata and RLS policy: anonymous/authenticated users can SELECT from `zhuqing-data`, while writes are performed only by the server-side service-role key.
+
+See [CloudBase deployment guide](CLOUDBASE_DEPLOYMENT.md) for required GitHub Variables / Secrets, Bucket policy, CORS, first-run deployment, validation and GitHub Pages rollback.
